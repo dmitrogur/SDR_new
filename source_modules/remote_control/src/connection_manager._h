@@ -1,0 +1,85 @@
+#pragma once
+#include "tcp_client_arm.h"
+
+#include <gui/smgui.h>
+#include <gui/gui.h>
+#include <string>
+#include <memory>
+#include <chrono>
+#include <functional>
+#include <signal_path/signal_path.h>
+#include <signal_path/vfo_manager.h> // Для получения DSP потока
+
+/*
+// Прямые объявления, чтобы не включать лишние заголовки в .h файл
+namespace dsp {
+    template <class T> class stream;
+    struct complex_t;
+}
+
+namespace sigpath {
+    class VFOManager;
+}
+
+namespace gui {
+    class MainWindow;
+}
+*/
+
+namespace server {
+class ConnectionManager {
+public:
+    /**
+     * @brief Конструктор менеджера соединений.
+     * @param host Адрес сервера.
+     * @param port Базовый порт (для данных, порт для информации будет port+2).
+     * @param serverId Уникальный ID сервера, которым управляет этот менеджер.
+     * @param vfoManager Ссылка на менеджер VFO для получения потока данных.
+     * @param mainWindow Ссылка на главное окно для обновления статуса GUI.
+     */
+    ConnectionManager(std::string host, int port, uint8_t serverId, 
+                      sigpath::VFOManager& vfoManager, gui::MainWindow& mainWindow);
+    ~ConnectionManager();
+
+    // Запрещаем копирование и перемещение, т.к. менеджер управляет уникальными ресурсами
+    ConnectionManager(const ConnectionManager&) = delete;
+    ConnectionManager& operator=(const ConnectionManager&) = delete;
+    ConnectionManager(ConnectionManager&&) = delete;
+    ConnectionManager& operator=(ConnectionManager&&) = delete;
+
+    void connect();
+
+    void disconnect();
+
+    void periodicCheck();
+
+    bool isConnected() const;
+
+    bool shouldBeConnected() const;
+
+private:
+    void attemptReconnect();
+
+    void closeAndCleanup();
+
+    // Параметры для подключения
+    std::string _host;
+    int _port;
+    uint8_t _serverId;
+
+    // Ссылки на внешние компоненты, необходимые для работы
+    sigpath::VFOManager& _vfoManager;
+    gui::MainWindow& _mainWindow;
+
+    // Состояние, управляемое пользователем
+    bool _shouldBeConnected;
+
+    // Умные указатели на объекты соединений
+    std::shared_ptr<server::TCPRemoveARM> _dataConnection;
+    std::shared_ptr<server::TCPRemoveARM> _infoConnection;
+    
+    // Таймер для предотвращения слишком частых попыток переподключения
+    std::chrono::steady_clock::time_point _lastReconnectAttemptTime;
+    const std::chrono::seconds RECONNECT_COOLDOWN = std::chrono::seconds(5);
+};
+}

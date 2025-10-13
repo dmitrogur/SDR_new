@@ -1,0 +1,347 @@
+{
+    "Admin": true,
+    "InstanceName": "1",
+    "InstanceNum": 1,
+    "IsARM": false,
+    "IsNotPlaying": false,
+    "IsServer": true,
+    "MAX_CHANNELS": 6,
+    "PathJson": "/opt/banks",
+    "PathWav": "/opt/recordings",
+    "RadioMode": 1,
+    "RecDirectoryLong": "/var/lib/avr/cws/data/receiver/records",
+    "RecDirectoryShort": "/var/lib/avr/cws/data/receiver/va_only",
+    "SERVERS_COUNT": 3,
+    "SIport": 63100,
+    "SaveInDirMalva": false,
+    "ServerPort": 7310,
+    "SignalIndf": true,
+    "USE_curl": false,
+    "Url": "http://10.10.10.10:8101/event",
+    "bandColors": {
+        "amateur": "#FF0000FF",
+        "aviation": "#00FF00FF",
+        "broadcast": "#0000FFFF",
+        "marine": "#00FFFFFF",
+        "military": "#FFFF00FF"
+    },
+    "bandPlan": "General",
+    "bandPlanEnabled": false,
+    "bandPlanPos": 0,
+    "centerTuning": true,
+    "colorMap": "Classic",
+    "decimationPower": 0,
+    "fastFFT": false,
+    "fftHeight": 286,
+    "fftHold": false,
+    "fftHoldSpeed": 0,
+    "fftMax_server_0": -24.705886840820313,
+    "fftMax_server_1": -100,
+    "fftMax_server_2": -100,
+    "fftMax_server_3": -100,
+    "fftMax_server_4": -100,
+    "fftMax_server_5": -100,
+    "fftMax_server_6": -100,
+    "fftMax_server_7": -100,
+    "fftMin_server_0": -104.70588684082031,
+    "fftMin_server_1": 0.0,
+    "fftMin_server_2": 0.0,
+    "fftMin_server_3": 0.0,
+    "fftMin_server_4": 0.0,
+    "fftMin_server_5": 0.0,
+    "fftMin_server_6": 0.0,
+    "fftMin_server_7": 0.0,
+    "fftRate": 20,
+    "fftSize": 65536,
+    "fftSmoothing": true,
+    "fftSmoothingSpeed": 50,
+    "fftWindow": 0,
+    "flagVA": true,
+    "frequency": 423400000.0,
+    "fullWaterfallUpdate": false,
+    "fullscreen": false,
+    "hostname": "localhost",
+    "icon": "/icons/sdrpp_1.png",
+    "invertIQ": false,
+    "iqCorrection": true,
+    "lockMenuOrder": true,
+    "max": -24.705886840820313,
+    "maxCountInScanBank": 256,
+    "maxRecDuration": 1,
+    "maxRecShortDur_sec": 3,
+    "maximized": true,
+    "menuElements": [
+        {
+            "name": "Радіоприймач",
+            "open": true
+        },
+        {
+            "name": "Аудіо вивід",
+            "open": true
+        },
+        {
+            "name": "Завантаження",
+            "open": false
+        },
+        {
+            "name": "Канал приймання",
+            "open": false
+        },
+        {
+            "name": "Пошук",
+            "open": true
+        },
+        {
+            "name": "Сканування",
+            "open": false
+        },
+        {
+            "name": "Спостереження",
+            "open": false
+        },
+        {
+            "name": "Airspy",
+            "open": true
+        },
+        {
+            "name": "Запис",
+            "open": true
+        },
+        {
+            "name": "Налаштування",
+            "open": false
+        },
+        {
+            "name": "C1",
+            "open": false
+        },
+        {
+            "name": "Запис C1",
+            "open": false
+        },
+        {
+            "name": "C2",
+            "open": false
+        },
+        {
+            "name": "Запис C2",
+            "open": false
+        },
+        {
+            "name": "C3",
+            "open": false
+        },
+        {
+            "name": "Запис C3",
+            "open": false
+        },
+        {
+            "name": "C4",
+            "open": false
+        },
+        {
+            "name": "Запис C4",
+            "open": false
+        },
+        {
+            "name": "C5",
+            "open": false
+        },
+        {
+            "name": "Запис C5",
+            "open": false
+        },
+        {
+            "name": "C6",
+            "open": false
+        },
+        {
+            "name": "Запис C6",
+            "open": false
+        },
+        {
+            "name": "C7",
+            "open": true
+        },
+        {
+            "name": "Запис C7",
+            "open": true
+        },
+        {
+            "name": "C8",
+            "open": true
+        },
+        {
+            "name": "Запис C8",
+            "open": true
+        },
+        {
+            "name": "Виводи ЦП",
+            "open": false
+        }
+    ],
+    "menuWidth": 384,
+    "min": -104.70588684082031,
+    "moduleInstances": {
+        "Airspy": {
+            "enabled": true,
+            "module": "airspy_source"
+        },
+        "Audio": {
+            "enabled": true,
+            "module": "audio_sink"
+        },
+        "Вивід в мережу": {
+            "enabled": true,
+            "module": "network_sink"
+        },
+        "Запис": {
+            "enabled": true,
+            "module": "recorder"
+        },
+        "Канал приймання": {
+            "enabled": true,
+            "module": "radio"
+        },
+        "Пошук": {
+            "enabled": true,
+            "module": "scanner2"
+        },
+        "Сканування": {
+            "enabled": true,
+            "module": "scanner3"
+        },
+        "Спостереження": {
+            "enabled": true,
+            "module": "supervision4"
+        }
+    },
+    "modules": [
+        "./decoder_modules/radio/radio.so",
+        "./misc_modules/recorder/recorder.so",
+        "./misc_modules/scanner2/scanner2.so",
+        "./misc_modules/scanner3/scanner3.so",
+        "./misc_modules/supervision4/supervision4.so",
+        "./sink_modules/audio_sink/audio_sink.so",
+        "./sink_modules/network_sink/network_sink.so",
+        "./source_modules/airspy_source/airspy_source.so"
+    ],
+    "modulesDirectory": "../root_dev/modules",
+    "offset": 0.0,
+    "offsetMode": 0,
+    "port": 4000,
+    "receivers": [
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        },
+        {
+            "bank": 0,
+            "mode": 0
+        }
+    ],
+    "resourcesDirectory": "../root_dev/res",
+    "showFFT": true,
+    "showMenu": true,
+    "showWaterfall": true,
+    "source": "Airspy",
+    "streams": {
+        "C1": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C2": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.30405405163764954
+        },
+        "C3": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C4": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C5": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C6": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C7": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "C8": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.25
+        },
+        "Канал приймання": {
+            "muted": true,
+            "sink": "Audio",
+            "volume": 0.0810810774564743
+        }
+    },
+    "theme": "Темна",
+    "uiScale": 1.0,
+    "vfoColors": {
+        "Канал приймання": "#FFFFFF"
+    },
+    "vfoOffsets": {
+        "C1": 0.0,
+        "C10": 0.0,
+        "C11": 0.0,
+        "C12": 0.0,
+        "C13": 0.0,
+        "C14": 0.0,
+        "C15": 0.0,
+        "C16": 0.0,
+        "C2": 0.0,
+        "C3": 0.0,
+        "C4": 0.0,
+        "C5": 0.0,
+        "C6": 0.0,
+        "C7": 0.0,
+        "C8": 0.0,
+        "C9": 0.0,
+        "Канал приймання": 0.0
+    },
+    "windowSize": {
+        "h": 1131,
+        "w": 1854
+    }
+}

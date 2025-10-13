@@ -1,0 +1,184 @@
+{
+    "bookmarkDisplayMode": 1,
+    "lists": {
+        "1111": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "1234": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "12345": {
+            "bookmarks": {
+                "C1": {
+                    "Signal": 0,
+                    "bandwidth": 25000.0,
+                    "dopinfo": "C1",
+                    "frequency": 431685000.0,
+                    "level": -70,
+                    "mode": 1,
+                    "scard": "vsink_1_C1"
+                }
+            },
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "3333": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "555": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "7777": {
+            "bookmarks": {
+                "C1": {
+                    "Signal": 0,
+                    "bandwidth": 25000.0,
+                    "dopinfo": "C1",
+                    "frequency": 434850000.0,
+                    "level": -70,
+                    "mode": 1,
+                    "scard": "vsink_1_C1"
+                }
+            },
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "General": {
+            "Signal": 0,
+            "bookmarks": {
+                "C1": {
+                    "Signal": 0,
+                    "bandwidth": 12500.0,
+                    "dopinfo": "C1",
+                    "frequency": 439400000.0,
+                    "level": -76,
+                    "mode": 0,
+                    "scard": "vsink_1_C1"
+                },
+                "C2": {
+                    "Signal": 2,
+                    "bandwidth": 12500.0,
+                    "dopinfo": "C2",
+                    "frequency": 439600000.0,
+                    "level": -70,
+                    "mode": 2,
+                    "scard": "vsink_1_C2"
+                },
+                "C3": {
+                    "Signal": 0,
+                    "bandwidth": 12500.0,
+                    "dopinfo": "C3",
+                    "frequency": 438337500.0,
+                    "level": -77,
+                    "mode": 0,
+                    "scard": "vsink_1_C3"
+                },
+                "C4": {
+                    "Signal": 2,
+                    "bandwidth": 12500.0,
+                    "dopinfo": "C4",
+                    "frequency": 441070000.0,
+                    "level": -70,
+                    "mode": 0,
+                    "scard": "vsink_1_C4"
+                },
+                "C5": {
+                    "Signal": 2,
+                    "bandwidth": 2700.0,
+                    "dopinfo": "C5",
+                    "frequency": 436840000.0,
+                    "level": -70,
+                    "mode": 4,
+                    "scard": "vsink_1_C5"
+                },
+                "C6": {
+                    "Signal": 0,
+                    "bandwidth": 12500.0,
+                    "dopinfo": "C6",
+                    "frequency": 440312500.0,
+                    "level": -70,
+                    "mode": 0,
+                    "scard": "vsink_1_C6"
+                }
+            },
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "Новий банк": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "Новий банк (1)": {
+            "bookmarks": {
+                "C1": {
+                    "Signal": 0,
+                    "bandwidth": 25000.0,
+                    "dopinfo": "C1",
+                    "frequency": 419975000.0,
+                    "level": -70,
+                    "mode": 1,
+                    "scard": "vsink_1_C1"
+                }
+            },
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "Новий банк (2)": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "Новий банк (3)": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        },
+        "Новий банк (4)": {
+            "bookmarks": {},
+            "flaglevel": true,
+            "genlevel": -70,
+            "showOnWaterfall": true
+        }
+    },
+    "maxRecDuration": 2,
+    "maxRecWaitTime": 4,
+    "maxRecWaitTime_1": 5,
+    "maxRecWaitTime_2": 5,
+    "maxRecWaitTime_3": 5,
+    "maxRecWaitTime_4": 5,
+    "maxRecWaitTime_5": 5,
+    "maxRecWaitTime_6": 5,
+    "maxRecWaitTime_7": 5,
+    "maxRecWaitTime_8": 5,
+    "selectedList": "General",
+    "status_AKF": true,
+    "status_auto_level": true,
+    "status_auto_level_1": true,
+    "status_auto_level_2": true,
+    "status_auto_level_3": true,
+    "status_auto_level_4": true,
+    "status_auto_level_5": true,
+    "status_auto_level_6": true,
+    "status_auto_level_7": true,
+    "status_auto_level_8": true
+}

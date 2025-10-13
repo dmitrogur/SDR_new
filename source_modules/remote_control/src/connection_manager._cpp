@@ -1,0 +1,148 @@
+#include "tcp_client_arm.h"
+
+#include <connection_manager.h>
+
+// Теперь включаем полные заголовки, так как они нужны для реализации
+#include <gui/main_window.h>       // Для обновления статуса в GUI
+#include <signal_path/vfo_manager.h> // Для получения DSP потока
+#include <utils/flog.h>            // Для логирования
+
+namespace server {
+
+ConnectionManager::ConnectionManager(std::string host, int port, uint8_t serverId,
+                                     sigpath::VFOManager& vfoManager, gui::MainWindow& mainWindow)
+    : _host(host),
+      _port(port),
+      _serverId(serverId),
+      _vfoManager(vfoManager),
+      _mainWindow(mainWindow),
+      _shouldBeConnected(false),
+      _lastReconnectAttemptTime(std::chrono::steady_clock::now())
+{
+    flog::info("ConnectionManager for server {0} ({1}:{2}) created.", _serverId, _host, _port);
+}
+
+ConnectionManager::~ConnectionManager()
+{
+    // Гарантируем, что при уничтожении менеджера все соединения будут корректно закрыты
+    disconnect();
+}
+
+void ConnectionManager::connect()
+{
+    if (_shouldBeConnected) {
+        return; // Уже в процессе подключения/подключены
+    }
+    flog::info("Connection process started by user for server {0}.", _serverId);
+    _shouldBeConnected = true;
+    // Немедленная первая попытка подключения
+    attemptReconnect();
+}
+
+void ConnectionManager::disconnect()
+{
+    if (!_shouldBeConnected) {
+        return; // Уже отключены
+    }
+    flog::info("Disconnection process started by user for server {0}.", _serverId);
+    _shouldBeConnected = false;
+    closeAndCleanup();
+}
+
+void ConnectionManager::periodicCheck()
+{
+    // Если пользователь не хочет быть подключенным, ничего не делаем
+    if (!_shouldBeConnected) {
+        return;
+    }
+
+    // Если уже подключены, ничего не делаем
+    if (isConnected()) {
+        return;
+    }
+    
+    // Если мы здесь, значит, мы должны быть подключены, но не подключены.
+    // Проверяем, прошло ли достаточно времени с последней попытки.
+    auto now = std::chrono::steady_clock::now();
+    if (now - _lastReconnectAttemptTime > RECONNECT_COOLDOWN)
+    {
+        flog::info("Connection for server {0} is down. Triggering reconnect.", _serverId);
+        attemptReconnect();
+    }
+}
+
+bool ConnectionManager::isConnected() const
+{
+    // Соединение считается активным, только если ОБА канала открыты
+    return _dataConnection && _dataConnection->isOpen() &&
+           _infoConnection && _infoConnection->isOpen();
+}
+
+bool ConnectionManager::shouldBeConnected() const
+{
+    return _shouldBeConnected;
+}
+
+void ConnectionManager::closeAndCleanup()
+{
+    flog::info("Closing and cleaning up connections for server {0}...", _serverId);
+
+    // Закрываем соединения. Вызов close() безопасен, даже если указатель null или сокет уже закрыт.
+    if (_dataConnection) {
+        _dataConnection->close();
+    }
+    if (_infoConnection) {
+        _infoConnection->close();
+    }
+
+    // Сбрасываем умные указатели. Это вызовет деструкторы TCPRemoveARM и освободит все ресурсы.
+    _dataConnection.reset();
+    _infoConnection.reset();
+    
+    // Обновляем GUI, чтобы показать, что соединение разорвано
+    // Важно: убедитесь, что ваш GUI может безопасно обработать этот вызов из любого потока,
+    // или вызывайте это только из главного потока.
+    gui::mainWindow.setServerStatus(_serverId, ARM_STATUS_NOT_CONTROL);
+    gui::mainWindow.fullConnection[_serverId] = false;
+
+    flog::info("Cleanup complete for server {0}.", _serverId);
+}
+
+void ConnectionManager::attemptReconnect()
+{
+    // Перед попыткой переподключения всегда сначала очищаем старые ресурсы
+    closeAndCleanup();
+
+    _lastReconnectAttemptTime = std::chrono::steady_clock::now();
+
+    flog::info("Attempting to connect to server {0} at {1}:{2}...", _serverId, _host, _port);
+
+    try {
+        // Получаем DSP-поток. Это может быть источником проблем, если VFO не существует.
+        dsp::stream<dsp::complex_t>* stream = _vfoManager.getVFOStream("Канал приймання");
+        if (!stream) {
+             flog::error("Cannot reconnect: VFO stream 'Канал приймання' not found!");
+             return;
+        }
+
+        // Пытаемся создать оба соединения
+        _dataConnection = server::connectARMData(stream, _host, _port, _serverId);
+        _infoConnection = server::connectARMInfo(stream, _host, _port, _serverId);
+
+        // Проверяем результат
+        if (isConnected()) {
+            flog::info("Successfully reconnected to server {0}!", _serverId);
+            // Здесь можно будет установить статус в GUI, например, "ARM_STATUS_STAT_CONTROL",
+            // как только придет первый пакет состояния. `TCPRemoveARM::workerInfo` сам это сделает.
+        } else {
+             flog::warn("Reconnect attempt failed for server {0}. Will try again later.", _serverId);
+             // Еще раз очищаем, на случай если одно из соединений открылось, а другое нет
+             closeAndCleanup();
+        }
+    } catch (const std::exception& e) {
+        flog::error("Exception during reconnect attempt for server {0}: {1}", _serverId, e.what());
+        // Гарантированно очищаем после исключения
+        closeAndCleanup();
+    }
+}
+}

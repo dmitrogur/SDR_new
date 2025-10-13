@@ -1,0 +1,53 @@
+{
+    "device": "744C60C82168924F",
+    "devices": {
+        "744C60C82137894F": {
+            "biasT": false,
+            "gainMode": 1,
+            "linearGain": 5,
+            "lnaAgc": false,
+            "lnaGain": 0,
+            "mixerAgc": false,
+            "mixerGain": 0,
+            "sampleRate": 8000000,
+            "sensitiveGain": 0,
+            "vgaGain": 0
+        },
+        "744C60C821629C4F": {
+            "biasT": false,
+            "gainMode": 1,
+            "linearGain": 9,
+            "lnaAgc": false,
+            "lnaGain": 12,
+            "mixerAgc": false,
+            "mixerGain": 7,
+            "sampleRate": 8000000,
+            "sensitiveGain": 0,
+            "vgaGain": 2
+        },
+        "744C60C82168924F": {
+            "biasT": false,
+            "gainMode": 1,
+            "linearGain": 8,
+            "lnaAgc": false,
+            "lnaGain": 10,
+            "mixerAgc": false,
+            "mixerGain": 8,
+            "sampleRate": 8000000,
+            "sensitiveGain": 0,
+            "vgaGain": 7
+        },
+        "B58069DC39825F13": {
+            "biasT": false,
+            "gainMode": 1,
+            "linearGain": 8,
+            "lnaAgc": false,
+            "lnaGain": 0,
+            "mixerAgc": false,
+            "mixerGain": 0,
+            "sampleRate": 8000000,
+            "sensitiveGain": 12,
+            "vgaGain": 0
+        }
+    }
+}

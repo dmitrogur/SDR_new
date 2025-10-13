@@ -1,0 +1,81 @@
+{
+    "Recorder": {
+        "audioStream": "C1",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис": {
+        "audioStream": "Канал приймання",
+        "audioVolume": 0.8199999928474426,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 1
+    },
+    "Запис C1": {
+        "audioStream": "C1",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C2": {
+        "audioStream": "C2",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C3": {
+        "audioStream": "C3",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C4": {
+        "audioStream": "C4",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C5": {
+        "audioStream": "C5",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C6": {
+        "audioStream": "C6",
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    },
+    "Запис C7": {
+        "audioVolume": 0.5,
+        "container": "WAV",
+        "ignoreSilence": false,
+        "maxTimeRecordMin": 10,
+        "nameTemplate": "$f_$h-$m-$s_$d-$M-$y",
+        "sampleType": 0
+    }
+}

@@ -1,0 +1,29 @@
+{
+    "SNR_level": 5,
+    "SNRlevel": 9,
+    "_level": -115,
+    "lists": {
+        "General": {
+            "_bandwidth": 2700.0,
+            "_interval": 10000,
+            "_level": -95,
+            "_lingerTime": 5000,
+            "_mode": 4,
+            "_passbandRatio": 15.0,
+            "_selectedLogicId": 1,
+            "_selectedSrchMode": 0,
+            "_startFreq": 420000000.0,
+            "_status_direction": true,
+            "_status_ignor": true,
+            "_status_record": true,
+            "_status_stop": true,
+            "_stopFreq": 468989000.0,
+            "_tuningTime": 100,
+            "_waitingTime": 1000,
+            "listName": "General"
+        }
+    },
+    "selectedList": "General",
+    "status_AKF": true,
+    "status_auto_level": true
+}

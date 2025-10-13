@@ -1,0 +1,181 @@
+{
+    "Admin": false,
+    "InstanceName": "Aster.ARM",
+    "InstanceNum": 1,
+    "IsARM": true,
+    "IsNotPlaying": false,
+    "IsServer": false,
+    "MAX_CHANNELS": 6,
+    "PathJson": "/opt/banks",
+    "PathWav": "/opt/recordings",
+    "RadioMode": 0,
+    "RecDirectoryLong": "/var/lib/avr/cws/data/receiver/records",
+    "RecDirectoryShort": "/var/lib/avr/cws/data/receiver/va_only",
+    "SERVERS_COUNT": 8,
+    "SIport": 63001,
+    "SaveInDirMalva": false,
+    "ServerPort": 7310,
+    "Url": "http://192.168.88.10:8101/event",
+    "bandColors": {
+        "amateur": "#FF0000FF",
+        "aviation": "#00FF00FF",
+        "broadcast": "#0000FFFF",
+        "marine": "#00FFFFFF",
+        "military": "#FFFF00FF"
+    },
+    "bandPlan": "General",
+    "bandPlanEnabled": false,
+    "bandPlanPos": 0,
+    "baseband_band": 1000000,
+    "centerTuning": false,
+    "colorMap": "GQRX",
+    "decimationPower": 0,
+    "fastFFT": false,
+    "fftHeight": 426,
+    "fftHold": false,
+    "fftHoldSpeed": 0,
+    "fftRate": 20,
+    "fftSize": 32768,
+    "fftSmoothing": true,
+    "fftSmoothingSpeed": 50,
+    "fftWindow": 0,
+    "flagVA": false,
+    "frequency": 404687500.0,
+    "fullWaterfallUpdate": true,
+    "fullscreen": false,
+    "hostname": "    localhost",
+    "icon": "/icons/sdrpp.png",
+    "invertIQ": false,
+    "iqCorrection": true,
+    "lockMenuOrder": false,
+    "max": -16.470584869384766,
+    "maxCountInScanBank": 256,
+    "maxRecDuration": 10,
+    "maxRecShortDur_sec": 3,
+    "maximized": false,
+    "menuElements": [
+        {
+            "name": "Радіоприймач",
+            "open": false
+        },
+        {
+            "name": "Аудіо вивід",
+            "open": false
+        },
+        {
+            "name": "Завантаження",
+            "open": true
+        },
+        {
+            "name": "Канал приймання",
+            "open": false
+        },
+        {
+            "name": "Запис",
+            "open": true
+        },
+        {
+            "name": "Пошук",
+            "open": false
+        },
+        {
+            "name": "Сканування",
+            "open": false
+        },
+        {
+            "name": "Спостереження",
+            "open": false
+        },
+        {
+            "name": "Сервер РПП",
+            "open": false
+        },
+        {
+            "name": "Налаштування",
+            "open": false
+        },
+        {
+            "name": "Виводи ЦП",
+            "open": false
+        }
+    ],
+    "menuWidth": 491,
+    "min": -114.11764526367188,
+    "moduleInstances": {
+        "ARM": {
+            "enabled": true,
+            "module": "remote_control_source"
+        },
+        "Airspy": {
+            "enabled": true,
+            "module": "airspy_source"
+        },
+        "Аудіо вивід": {
+            "enabled": true,
+            "module": "audio_sink"
+        },
+        "Вивід в мережу": {
+            "enabled": true,
+            "module": "network_sink"
+        },
+        "Запис": {
+            "enabled": true,
+            "module": "recorder"
+        },
+        "Канал приймання": {
+            "enabled": true,
+            "module": "radio"
+        },
+        "Пошук": {
+            "enabled": true,
+            "module": "scanner2"
+        },
+        "Сканування": {
+            "enabled": true,
+            "module": "scanner3"
+        },
+        "Спостереження": {
+            "enabled": true,
+            "module": "supervision4"
+        }
+    },
+    "modules": [
+        "./decoder_modules/radio/radio.so",
+        "./misc_modules/recorder/recorder.so",
+        "./misc_modules/scanner2/scanner2.so",
+        "./misc_modules/scanner3/scanner3.so",
+        "./misc_modules/supervision4/supervision4.so",
+        "./sink_modules/audio_sink/audio_sink.so",
+        "./sink_modules/network_sink/network_sink.so",
+        "./source_modules/airspy_source/airspy_source.so",
+        "./source_modules/remote_control/remote_control_source.so"
+    ],
+    "modulesDirectory": "../root_dev/modules",
+    "offset": 0.0,
+    "offsetMode": 0,
+    "port": 4000,
+    "resourcesDirectory": "../root_dev/res",
+    "showFFT": true,
+    "showMenu": true,
+    "showWaterfall": true,
+    "source": "APM",
+    "streams": {
+        "Канал приймання": {
+            "muted": false,
+            "sink": "Аудіо",
+            "volume": 0.07000000029802322
+        }
+    },
+    "theme": "Темна",
+    "uiScale": 1.0,
+    "vfoColors": {
+        "Канал приймання": "#FFFFFF"
+    },
+    "vfoOffsets": {
+        "Канал приймання": 812500.0
+    },
+    "windowSize": {
+        "h": 1011,
+        "w": 1390
+    }
+}

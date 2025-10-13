@@ -1,0 +1,66 @@
+{
+    "C1": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 8000,
+            "Renoir Radeon High Definition Audio Controller": 8000
+        }
+    },
+    "C2": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 8000,
+            "Renoir Radeon High Definition Audio Controller": 48000
+        }
+    },
+    "C3": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 8000,
+            "Renoir Radeon High Definition Audio Controller": 48000
+        }
+    },
+    "C4": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 48000,
+            "Renoir Radeon High Definition Audio Controller": 48000
+        }
+    },
+    "C5": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 48000,
+            "Renoir Radeon High Definition Audio Controller": 48000
+        }
+    },
+    "C6": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Renoir Radeon High Definition Audio Controller": 48000
+        }
+    },
+    "C7": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000
+        }
+    },
+    "Канал приймання": {
+        "device": "",
+        "devices": {
+            "Built-in Audio Analog Stereo": 48000,
+            "Family 17h (Models 10h-1fh) HD Audio Controller Analog Stereo": 48000,
+            "Family 17h/19h HD Audio Controller": 16000,
+            "Renoir Radeon High Definition Audio Controller": 8000
+        }
+    }
+}

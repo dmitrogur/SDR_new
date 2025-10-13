@@ -1,0 +1,692 @@
+[
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -g -Og -std=c++17 -o CMakeFiles/sdrpp.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/src/main.cpp",
+  "output": "CMakeFiles/sdrpp.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/aster_server.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/aster_server.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/aster_server.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/aster_server.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/command_args.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/command_args.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/command_args.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/command_args.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/config.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/config.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/config.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/config.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/core.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/core.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/core.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/core.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/credits.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/credits.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/credits.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/credits.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/colormaps.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/colormaps.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/colormaps.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/colormaps.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/dialogs/credits.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/dialogs/credits.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/dialogs/credits.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/dialogs/credits.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/dialogs/loading_screen.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/dialogs/loading_screen.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/dialogs/loading_screen.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/dialogs/loading_screen.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/gui.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/gui.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/gui.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/gui.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/icons.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/icons.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/icons.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/icons.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/main_window.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/main_window.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/main_window.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/main_window.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/bandplan.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/bandplan.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/bandplan.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/bandplan.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/display.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/display.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/display.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/display.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/module_manager.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/module_manager.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/module_manager.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/module_manager.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/sink.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/sink.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/sink.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/sink.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/source.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/source.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/source.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/source.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/theme.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/theme.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/theme.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/theme.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/menus/vfo_color.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/vfo_color.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/menus/vfo_color.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/menus/vfo_color.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/smgui.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/smgui.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/smgui.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/smgui.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/style.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/style.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/style.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/style.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/theme_manager.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/theme_manager.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/theme_manager.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/theme_manager.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/tuner.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/tuner.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/tuner.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/tuner.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/bandplan.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/bandplan.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/bandplan.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/bandplan.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/constellation_diagram.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/constellation_diagram.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/constellation_diagram.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/constellation_diagram.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/file_select.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/file_select.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/file_select.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/file_select.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/folder_select.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/folder_select.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/folder_select.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/folder_select.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/frequency_select.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/frequency_select.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/frequency_select.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/frequency_select.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/image.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/image.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/image.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/image.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/line_push_image.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/line_push_image.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/line_push_image.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/line_push_image.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/menu.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/menu.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/menu.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/menu.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/snr_meter.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/snr_meter.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/snr_meter.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/snr_meter.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/stepped_slider.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/stepped_slider.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/stepped_slider.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/stepped_slider.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/symbol_diagram.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/symbol_diagram.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/symbol_diagram.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/symbol_diagram.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/volume_meter.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/volume_meter.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/volume_meter.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/volume_meter.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/gui/widgets/waterfall.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/waterfall.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/gui/widgets/waterfall.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/gui/widgets/waterfall.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui_demo.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_demo.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_demo.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui_demo.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui_draw.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_draw.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_draw.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui_draw.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui_impl_opengl3.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_impl_opengl3.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_impl_opengl3.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui_impl_opengl3.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui_tables.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_tables.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_tables.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui_tables.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/imgui/imgui_widgets.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_widgets.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/imgui/imgui_widgets.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/imgui/imgui_widgets.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/module.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/module.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/module.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/module.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/module_com.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/module_com.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/module_com.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/module_com.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/server.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/server.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/server.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/server.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/iq_frontend.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/iq_frontend.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/iq_frontend.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/iq_frontend.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/remote_radio.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/remote_radio.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/remote_radio.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/remote_radio.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/signal_path.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/signal_path.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/signal_path.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/signal_path.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/sink.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/sink.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/sink.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/sink.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/source.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/source.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/source.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/source.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/signal_path/vfo_manager.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/signal_path/vfo_manager.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/signal_path/vfo_manager.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/signal_path/vfo_manager.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/arrays.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/arrays.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/arrays.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/arrays.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/flog.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/flog.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/flog.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/flog.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/net.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/net.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/net.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/net.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/networking.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/networking.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/networking.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/networking.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/proto/http.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/proto/http.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/proto/http.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/proto/http.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/proto/rigctl.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/proto/rigctl.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/proto/rigctl.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/proto/rigctl.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/riff.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/riff.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/riff.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/riff.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/src/utils/wav.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/src/utils/wav.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/src/utils/wav.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/src/utils/wav.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/backends/glfw/backend.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/backends/glfw/backend.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/backend.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/backends/glfw/backend.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core",
+  "command": "/usr/bin/g++ -DFLOG_ANDROID_TAG=\\\"Aster\\\" -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -DSDRPP_IS_CORE -Dsdrpp_core_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_core.dir/backends/glfw/imgui/imgui_impl_glfw.cpp.o -c /home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui/imgui_impl_glfw.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui/imgui_impl_glfw.cpp",
+  "output": "core/CMakeFiles/sdrpp_core.dir/backends/glfw/imgui/imgui_impl_glfw.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/fec_shim_static.dir/src/fec_shim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/fec_shim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/fec_shim.c",
+  "output": "core/libcorrect/CMakeFiles/fec_shim_static.dir/src/fec_shim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect",
+  "command": "/usr/bin/gcc -Dfec_shim_shared_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -fPIC -o CMakeFiles/fec_shim_shared.dir/src/fec_shim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/fec_shim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/fec_shim.c",
+  "output": "core/libcorrect/CMakeFiles/fec_shim_shared.dir/src/fec_shim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/bit.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/bit.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/bit.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/bit.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/metric.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/metric.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/metric.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/metric.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/history_buffer.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/history_buffer.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/history_buffer.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/history_buffer.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/error_buffer.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/error_buffer.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/error_buffer.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/error_buffer.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/lookup.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/lookup.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/lookup.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/lookup.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/convolutional.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/convolutional.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/convolutional.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/convolutional.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/encode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/encode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/encode.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/encode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional.dir/decode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/decode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/decode.c",
+  "output": "core/libcorrect/src/convolutional/CMakeFiles/correct-convolutional.dir/decode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional/sse",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional-sse.dir/lookup.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/lookup.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/lookup.c",
+  "output": "core/libcorrect/src/convolutional/sse/CMakeFiles/correct-convolutional-sse.dir/lookup.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional/sse",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional-sse.dir/convolutional.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/convolutional.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/convolutional.c",
+  "output": "core/libcorrect/src/convolutional/sse/CMakeFiles/correct-convolutional-sse.dir/convolutional.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional/sse",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional-sse.dir/encode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/encode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/encode.c",
+  "output": "core/libcorrect/src/convolutional/sse/CMakeFiles/correct-convolutional-sse.dir/encode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/convolutional/sse",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-convolutional-sse.dir/decode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/decode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/convolutional/sse/decode.c",
+  "output": "core/libcorrect/src/convolutional/sse/CMakeFiles/correct-convolutional-sse.dir/decode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/reed-solomon",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-reed-solomon.dir/polynomial.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/polynomial.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/polynomial.c",
+  "output": "core/libcorrect/src/reed-solomon/CMakeFiles/correct-reed-solomon.dir/polynomial.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/reed-solomon",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-reed-solomon.dir/reed-solomon.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/reed-solomon.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/reed-solomon.c",
+  "output": "core/libcorrect/src/reed-solomon/CMakeFiles/correct-reed-solomon.dir/reed-solomon.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/reed-solomon",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-reed-solomon.dir/encode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/encode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/encode.c",
+  "output": "core/libcorrect/src/reed-solomon/CMakeFiles/correct-reed-solomon.dir/encode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/src/reed-solomon",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/correct-reed-solomon.dir/decode.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/decode.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/src/reed-solomon/decode.c",
+  "output": "core/libcorrect/src/reed-solomon/CMakeFiles/correct-reed-solomon.dir/decode.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/util",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/error_sim.dir/error-sim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "output": "core/libcorrect/util/CMakeFiles/error_sim.dir/error-sim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/util",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/error_sim_shim.dir/error-sim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "output": "core/libcorrect/util/CMakeFiles/error_sim_shim.dir/error-sim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/util",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/error_sim_shim.dir/error-sim-shim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim-shim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim-shim.c",
+  "output": "core/libcorrect/util/CMakeFiles/error_sim_shim.dir/error-sim-shim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/util",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/error_sim_sse.dir/error-sim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim.c",
+  "output": "core/libcorrect/util/CMakeFiles/error_sim_sse.dir/error-sim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/util",
+  "command": "/usr/bin/gcc  -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/error_sim_sse.dir/error-sim-sse.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim-sse.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/util/error-sim-sse.c",
+  "output": "core/libcorrect/util/CMakeFiles/error_sim_sse.dir/error-sim-sse.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/convolutional_test_runner.dir/convolutional.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional.c",
+  "output": "core/libcorrect/tests/CMakeFiles/convolutional_test_runner.dir/convolutional.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/convolutional_sse_test_runner.dir/convolutional-sse.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional-sse.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional-sse.c",
+  "output": "core/libcorrect/tests/CMakeFiles/convolutional_sse_test_runner.dir/convolutional-sse.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/convolutional_shim_test_runner.dir/convolutional-shim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional-shim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/convolutional-shim.c",
+  "output": "core/libcorrect/tests/CMakeFiles/convolutional_shim_test_runner.dir/convolutional-shim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/reed_solomon_test_runner.dir/reed-solomon.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/reed-solomon.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/reed-solomon.c",
+  "output": "core/libcorrect/tests/CMakeFiles/reed_solomon_test_runner.dir/reed-solomon.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/reed_solomon_test_runner.dir/rs_tester.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester.c",
+  "output": "core/libcorrect/tests/CMakeFiles/reed_solomon_test_runner.dir/rs_tester.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/reed_solomon_shim_interop_test_runner.dir/reed-solomon-shim-interop.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/reed-solomon-shim-interop.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/reed-solomon-shim-interop.c",
+  "output": "core/libcorrect/tests/CMakeFiles/reed_solomon_shim_interop_test_runner.dir/reed-solomon-shim-interop.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/reed_solomon_shim_interop_test_runner.dir/rs_tester.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester.c",
+  "output": "core/libcorrect/tests/CMakeFiles/reed_solomon_shim_interop_test_runner.dir/rs_tester.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tests",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/reed_solomon_shim_interop_test_runner.dir/rs_tester_fec_shim.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester_fec_shim.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tests/rs_tester_fec_shim.c",
+  "output": "core/libcorrect/tests/CMakeFiles/reed_solomon_shim_interop_test_runner.dir/rs_tester_fec_shim.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tools",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/rs_find_primitive_poly.dir/find_rs_primitive_poly.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_rs_primitive_poly.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_rs_primitive_poly.c",
+  "output": "core/libcorrect/tools/CMakeFiles/rs_find_primitive_poly.dir/find_rs_primitive_poly.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tools",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/conv_find_optim_poly.dir/find_conv_optim_poly.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_conv_optim_poly.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_conv_optim_poly.c",
+  "output": "core/libcorrect/tools/CMakeFiles/conv_find_optim_poly.dir/find_conv_optim_poly.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/core/libcorrect/tools",
+  "command": "/usr/bin/gcc -DHAVE_SSE=1 -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include  -fPIC -std=c99 -Wall -Wpedantic -g3 -O0 -fsanitize=address -msse4.1 -g -o CMakeFiles/conv_find_optim_poly_annealing.dir/find_conv_optim_poly_annealing.c.o -c /home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_conv_optim_poly_annealing.c",
+  "file": "/home/dgm/Aster/SDRPlusPlus/core/libcorrect/tools/find_conv_optim_poly_annealing.c",
+  "output": "core/libcorrect/tools/CMakeFiles/conv_find_optim_poly_annealing.dir/find_conv_optim_poly_annealing.c.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/airspy_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dairspy_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/usr/include/libairspy -I/usr/include/libusb-1.0 -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/airspy_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/airspy_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/airspy_source/src/main.cpp",
+  "output": "source_modules/airspy_source/CMakeFiles/airspy_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/audio_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Daudio_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/usr/include/rtaudio -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/audio_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/audio_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/audio_source/src/main.cpp",
+  "output": "source_modules/audio_source/CMakeFiles/audio_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/file_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dfile_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/file_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/file_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/file_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/file_source/src/main.cpp",
+  "output": "source_modules/file_source/CMakeFiles/file_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/sdrpp_server_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dsdrpp_server_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_server_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src/main.cpp",
+  "output": "source_modules/sdrpp_server_source/CMakeFiles/sdrpp_server_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/sdrpp_server_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dsdrpp_server_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/sdrpp_server_source.dir/src/sdrpp_server_client.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src/sdrpp_server_client.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/sdrpp_server_source/src/sdrpp_server_client.cpp",
+  "output": "source_modules/sdrpp_server_source/CMakeFiles/sdrpp_server_source.dir/src/sdrpp_server_client.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/tcp_client_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dtcp_client_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/tcp_client_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src/main.cpp",
+  "output": "source_modules/tcp_client_source/CMakeFiles/tcp_client_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/tcp_client_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dtcp_client_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/tcp_client_source.dir/src/tcp_client.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src/tcp_client.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/tcp_client_source/src/tcp_client.cpp",
+  "output": "source_modules/tcp_client_source/CMakeFiles/tcp_client_source.dir/src/tcp_client.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/aster_server_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Daster_server_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/aster_server_source.dir/src/aster_server_client.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src/aster_server_client.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src/aster_server_client.cpp",
+  "output": "source_modules/aster_server_source/CMakeFiles/aster_server_source.dir/src/aster_server_client.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/aster_server_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Daster_server_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/aster_server_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/aster_server_source/src/main.cpp",
+  "output": "source_modules/aster_server_source/CMakeFiles/aster_server_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/remote_control",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dremote_control_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/remote_control_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src/main.cpp",
+  "output": "source_modules/remote_control/CMakeFiles/remote_control_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/remote_control",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dremote_control_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/remote_control_source.dir/src/tcp_client_arm.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src/tcp_client_arm.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/remote_control/src/tcp_client_arm.cpp",
+  "output": "source_modules/remote_control/CMakeFiles/remote_control_source.dir/src/tcp_client_arm.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/source_modules/bladerf_source",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dbladerf_source_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/bladerf_source.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/source_modules/bladerf_source/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/source_modules/bladerf_source/src/main.cpp",
+  "output": "source_modules/bladerf_source/CMakeFiles/bladerf_source.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/sink_modules/audio_sink",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Daudio_sink_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/usr/include/rtaudio -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/audio_sink.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/sink_modules/audio_sink/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/sink_modules/audio_sink/src/main.cpp",
+  "output": "sink_modules/audio_sink/CMakeFiles/audio_sink.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/sink_modules/network_sink",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dnetwork_sink_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/network_sink.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/sink_modules/network_sink/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/sink_modules/network_sink/src/main.cpp",
+  "output": "sink_modules/network_sink/CMakeFiles/network_sink.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/decoder_modules/radio",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dradio_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/radio.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src/main.cpp",
+  "output": "decoder_modules/radio/CMakeFiles/radio.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/decoder_modules/radio",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dradio_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/radio.dir/src/rds.cpp.o -c /home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src/rds.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/decoder_modules/radio/src/rds.cpp",
+  "output": "decoder_modules/radio/CMakeFiles/radio.dir/src/rds.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/misc_modules/recorder",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Drecorder_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/recorder/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/recorder.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/misc_modules/recorder/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/misc_modules/recorder/src/main.cpp",
+  "output": "misc_modules/recorder/CMakeFiles/recorder.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/misc_modules/scanner2",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dscanner2_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/misc_modules/scanner2/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -O3 -std=c++17 -lcurl -o CMakeFiles/scanner2.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/misc_modules/scanner2/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/misc_modules/scanner2/src/main.cpp",
+  "output": "misc_modules/scanner2/CMakeFiles/scanner2.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/misc_modules/scanner3",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dscanner3_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/scanner3/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/scanner3/../../decoder_modules/radio/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/scanner3.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/misc_modules/scanner3/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/misc_modules/scanner3/src/main.cpp",
+  "output": "misc_modules/scanner3/CMakeFiles/scanner3.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/dgm/Aster/SDRPlusPlus/build/misc_modules/supervision4",
+  "command": "/usr/bin/g++ -DHAVE_SSE=1 -DINSTALL_PREFIX=\\\"/usr\\\" -Dsupervision4_EXPORTS -I/home/dgm/Aster/SDRPlusPlus/core/src/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/supervision4/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/supervision4/../../decoder_modules/radio/src -I/home/dgm/Aster/SDRPlusPlus/misc_modules/supervision4/../../sink_modules/audio_sink/src -I/home/dgm/Aster/SDRPlusPlus/core/src -I/home/dgm/Aster/SDRPlusPlus/core/src/imgui -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw -I/home/dgm/Aster/SDRPlusPlus/core/backends/glfw/imgui -I/home/dgm/Aster/SDRPlusPlus/core/libcorrect/include -g -fPIC -g -Og -std=c++17 -o CMakeFiles/supervision4.dir/src/main.cpp.o -c /home/dgm/Aster/SDRPlusPlus/misc_modules/supervision4/src/main.cpp",
+  "file": "/home/dgm/Aster/SDRPlusPlus/misc_modules/supervision4/src/main.cpp",
+  "output": "misc_modules/supervision4/CMakeFiles/supervision4.dir/src/main.cpp.o"
+}
+]

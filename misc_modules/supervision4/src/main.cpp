@@ -607,6 +607,7 @@ private:
                 // Программа завершается. Больше ничего не делаем.
                 // Просто ждем, пока нас остановят через pleaseStop.
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                flog::warn("if (core::g_isExiting)");
                 continue;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
@@ -615,6 +616,7 @@ private:
                 if (_this->listUpdater.load())
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    flog::warn("if (_this->listUpdater.load())");
                     continue;
                 }
 

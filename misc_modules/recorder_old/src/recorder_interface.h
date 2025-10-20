@@ -1,0 +1,7 @@
+#pragma once
+
+enum {
+    RECORDER_MODE_BASEBAND,
+    RECORDER_MODE_AUDIO,
+    RECORDER_MODE_PUREIQ
+};

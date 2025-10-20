@@ -45,6 +45,10 @@
 #include <dsp/taps/tap.h>
 #include <dsp/types.h>
 
+// For pre-recording buffer
+#include <deque>
+#include <vector>
+
 namespace fs = std::filesystem;
 // using namespace std::filesystem;
 
@@ -195,39 +199,57 @@ inline void closeShutdownPipe(int fds[2])
 class LockFreeRingBuffer
 {
 public:
+    // Конструктор: выделяет память под буфер
     LockFreeRingBuffer(size_t size) : _size(size), _head(0), _tail(0)
     {
         _buffer = new std::atomic<float>[size];
         for (size_t i = 0; i < size; ++i)
+        {
             _buffer[i].store(0.0f, std::memory_order_relaxed);
+        }
     }
-    ~LockFreeRingBuffer() { delete[] _buffer; }
+
+    // Деструктор: освобождает память
+    ~LockFreeRingBuffer()
+    {
+        delete[] _buffer;
+    }
+
+    // Некопируемый
     LockFreeRingBuffer(const LockFreeRingBuffer &) = delete;
     LockFreeRingBuffer &operator=(const LockFreeRingBuffer &) = delete;
 
+    // Запись в буфер (для аудиопотока)
     void push(float value)
     {
-        const auto t = _tail.load(std::memory_order_relaxed);
-        _buffer[t].store(value, std::memory_order_relaxed);
-        size_t next = t + 1;
-        if (next == _size)
-            next = 0;
-        _tail.store(next, std::memory_order_release);
-        // Перезапись старых данных допустима — нам нужен последний интервал
+        const auto current_tail = _tail.load(std::memory_order_relaxed);
+        _buffer[current_tail].store(value, std::memory_order_relaxed); // Записываем в любом случае
+
+        auto next_tail = current_tail + 1;
+        if (next_tail == _size)
+        {
+            next_tail = 0;
+        }
+        _tail.store(next_tail, std::memory_order_release);
     }
+
+    // Чтение из буфера (для потока start())
     bool pop(float &value)
     {
-        const auto h = _head.load(std::memory_order_relaxed);
-        if (h == _tail.load(std::memory_order_acquire))
-            return false;
-        value = _buffer[h].load(std::memory_order_relaxed);
-        size_t next = h + 1;
-        if (next == _size)
-            next = 0;
-        _head.store(next, std::memory_order_release);
+        const auto current_head = _head.load(std::memory_order_relaxed);
+        if (current_head == _tail.load(std::memory_order_acquire))
+        {
+            return false; // Буфер пуст
+        }
+        value = _buffer[current_head].load(std::memory_order_relaxed);
+        auto next_head = current_head + 1;
+        if (next_head == _size)
+        {
+            next_head = 0;
+        }
+        _head.store(next_head, std::memory_order_release);
         return true;
     }
-    size_t capacity() const { return _size; }
 
 private:
     const size_t _size;
@@ -252,9 +274,8 @@ public:
     std::thread workerInfoThread; // <-- Мы снова будем его использовать!
 
     static std::atomic<bool> g_stop_workers;
-    // std::atomic<bool> pleaseStop{false};
 
-    RecorderModule(std::string name) : folderSelect("%ROOT%/recordings"), folderSelect_akf("%ROOT%/recordings")
+    RecorderModule(std::string name) : folderSelect("%ROOT%/recordings"), folderSelect_akf("%ROOT%/recordings"), monoPreBuffer(4000)
     {
         flog::info("start constructor RecorderModule");
         this->name = name;
@@ -263,20 +284,14 @@ public:
 
         root = (std::string)core::args["root"];
         strcpy(nameTemplate, "$f_$h-$m-$s_$d-$M-$y");
-        // folderSelect_akf = folderSelect;
-        // Define option lists
+
         containers.define("WAV", wav::FORMAT_WAV);
-        // containers.define("RF64", wav::FORMAT_RF64); // Disabled for now
-        // Define option lists
-        // https://github.com/qrp73/SDRPP/blob/master/misc_modules/recorder/src/main.cpp
-        // containers.define("FLAC", wav::FORMAT_FLAC);
-        // containers.define("MP3", wav::FORMAT_MP3);
 
         sampleTypes.define(wav::SAMP_TYPE_UINT8, "Uint8", wav::SAMP_TYPE_UINT8);
         sampleTypes.define(wav::SAMP_TYPE_INT16, "Int16", wav::SAMP_TYPE_INT16);
         sampleTypes.define(wav::SAMP_TYPE_INT32, "Int32", wav::SAMP_TYPE_INT32);
         sampleTypes.define(wav::SAMP_TYPE_FLOAT32, "Float32", wav::SAMP_TYPE_FLOAT32);
-        sampleTypeId = sampleTypes.valueId(wav::SAMP_TYPE_INT16); // SAMP_TYPE_UINT8);
+        sampleTypeId = sampleTypes.valueId(wav::SAMP_TYPE_INT16);
 
         samplingRates.define(SAMP_TYPE_8k, "8000", SAMP_TYPE_8k);
         samplingRates.define(SAMP_TYPE_11k025, "11025", SAMP_TYPE_11k025);
@@ -286,7 +301,7 @@ public:
         samplingRateId = samplingRates.valueId(SAMP_TYPE_8k);
 
         containerId = containers.valueId(wav::FORMAT_WAV);
-        // Load config
+
         maxRecDuration = 5;
         bool update_conf = false;
         core::configManager.acquire();
@@ -501,10 +516,10 @@ public:
                 flog::error("Invalid shortRecDirectory format: {} — {}", shortRecDirectory, e.what());
                 akfState.store(AkfState::IDLE);
                 initiateSuccessfulRecording(1);
-                return; // Выход из текущей обработки, чтобы не продолжать с некорректным путём
+                return;
             }
         }
-        akfUdpPort = SIport + NUM_INST; // добавь поле int akfUdpPort{0}; в классе
+        akfUdpPort = SIport + NUM_INST;
         flog::info("[RECORDER {0}] Map: NUM_INST={1}, shortRecDirectory={2}, akfUdpPort={3}", name.c_str(), NUM_INST, shortRecDirectory.c_str(), akfUdpPort);
 
         if (strm_name == "")
@@ -538,12 +553,9 @@ public:
         {
             ignoreSilence = false;
         }
-        // ignoreSilence = false;
 
-        // flog::info("nameTemplate: {0}", nameTemplate);
         if (config.conf[name].contains("nameTemplate"))
         {
-            // flog::info("1 nameTemplate: {0}", nameTemplate);
             std::string _nameTemplate = config.conf[name]["nameTemplate"];
             if (_nameTemplate.length() > sizeof(nameTemplate) - 1)
             {
@@ -592,40 +604,36 @@ public:
             config.conf[name]["preRecordTime"] = preRecordTimeMs;
             update_conf = true;
         }
-        if (preRecordTimeMs > 2000)
-            preRecordTimeMs = 2000;
-        if (name == "Запис")
-        {
-            preRecordTimeMs = 0;
-        }
+
         if (update_conf)
             config.release(true);
         else
             config.release();
 
         flog::info("staring 0 constructor RecorderModule");
-        // Init audio path
+
+        thisInstance = thisInstance + "-1";
+
+        // --- Start of Corrected DSP Chain ---
         volume.init(NULL, audioVolume, false);
-        splitter.init(&volume.out);
-        splitter.bindStream(&meterStream);
+        stereoSplitter.init(&volume.out);
+        stereoSplitter.bindStream(&meterStream);
+        stereoSplitter.bindStream(&s2mStream);
         meter.init(&meterStream);
-        s2m.init(&stereoStream);
+        s2m.init(&s2mStream);
+        monoSplitter.init(&s2m.out);
+        monoSplitter.bindStream(&monoSinkStream);
+        monoSplitter.bindStream(&preRecordSinkStream);
+
+        flog::info("staring 1 constructor RecorderModule");
 
         // Init sinks
         basebandSink.init(NULL, complexHandler, this);
-        stereoSink.init(&stereoStream, stereoHandler, this);
-        if (!isPreRecordChannel(name))
-        { /// Оставляем так как есть.
-            monoSink.init(&s2m.out, monoHandler, this);
-        }
-        else
-        { // только для Control
-            monoSink.init(&s2m.out, preRecordMonoHandler, this);
-        }
-        // флаг для управления meter на время записи
-        meterDetachedForRecord = false;
+        stereoSink.init(&stereoStream, stereoHandler, this); // Kept for other modes, but not used for mono recording
+        monoSink.init(&monoSinkStream, monoHandler, this);
+        preRecordSink.init(&preRecordSinkStream, preRecordMonoHandler, this);
 
-        thisInstance = thisInstance + "-1";
+        flog::info("staring 2 constructor RecorderModule");
 
         if (!initShutdownPipe(shutdownPipeFd))
         {
@@ -636,54 +644,38 @@ public:
         {
             flog::info("Shutdown pipe created: rfd=%d, wfd=%d", shutdownPipeFd[0], shutdownPipeFd[1]);
         }
-        processing.store(0);
+        processing = 0;
         gui::menu.registerEntry(name, menuHandler, this);
 
         flog::info("finish constructor RecorderModule");
 
         flog::warn(" RegisterInterface: {0}", name);
         core::modComManager.registerInterface("recorder", name, moduleInterfaceHandler, this);
-        // flog::warn("radio. 2. strm_name {0}, selectedStreamName {1}, name.size() {2}", strm_name.c_str(), selectedStreamName, name.size());
     }
 
     ~RecorderModule()
     {
-        // flog::info("DESTRUCTOR for RecorderModule '{0}' ENTERED.", name);
-
-        // 1) ЕДИНАЯ ТОЧКА ОСТАНОВКИ
-        // stop(true) внутри:
-        //  - write(shutdownPipeFd[1], 'x');  // будим select/recv
-        //  - корректно останавливает DSP/файлы, снимает бинды
-        //  - join analysisThread (без удержания analysisThreadMtx)
-        //  - сбрасывает флаги recording/this_record/restart_pending/akfState
         is_destructing.store(true);
         try
         {
-            flog::error("stop(true, true);", name);
-            stop(true, true);
+            stop(true);
         }
         catch (...)
         {
             flog::error("DESTRUCTOR '{0}': stop(true) threw; continuing cleanup.", name);
         }
 
-        // 2) Завершаем workerInfoThread
-        // flog::info("DESTRUCTOR for '{0}': Awaiting workerInfoThread.join()...", name);
         if (workerInfoThread.joinable())
             workerInfoThread.join();
         if (analysisThread.joinable())
             analysisThread.join();
-        // flog::info("DESTRUCTOR for '{0}': workerInfoThread joined.", name);
 
-        // 4) Теперь можно безопасно закрывать пайпы
         closeShutdownPipe(shutdownPipeFd);
 
-        // 5) Убираем интерфейсы/GUI
         core::modComManager.unregisterInterface(name);
         gui::menu.removeEntry(name);
 
-        // 6) Снимаем подписки и локальные ресурсы
-        deselectStream(); // быстро
+        deselectStream();
         sigpath::sinkManager.onStreamRegistered.unbindHandler(&onStreamRegisteredHandler);
         sigpath::sinkManager.onStreamUnregister.unbindHandler(&onStreamUnregisterHandler);
         meter.stop();
@@ -693,21 +685,17 @@ public:
             writer_akf = nullptr;
         }
 
-        // 7) Удаляем себя из глобального списка (потоки уже мертвы)
         {
             std::lock_guard<std::mutex> lock(g_instancesMutex);
             g_recorderInstances.erase(
                 std::remove(g_recorderInstances.begin(), g_recorderInstances.end(), this),
                 g_recorderInstances.end());
         }
-
-        // flog::info("DESTRUCTOR for RecorderModule '{0}' FINISHED.", name);
     }
 
     std::string genRawFileName(int mode, std::string name)
     {
-        std::string templ = "$t_$f_$h-$m-$s_$d-$M-$y.raw"; // "$y$M$d-$u-$f-$b-$n-$e.wav";
-        // Get data
+        std::string templ = "$t_$f_$h-$m-$s_$d-$M-$y.raw";
         time_t now = time(0);
         tm *ltm = localtime(&now);
         double freq = gui::waterfall.getCenterFrequency();
@@ -716,10 +704,8 @@ public:
             freq += gui::waterfall.vfos[name]->generalOffset;
         }
 
-        // Select the record type string
         std::string type = (recMode == RECORDER_MODE_AUDIO) ? "audio" : "iq";
 
-        // Format to string
         char freqStr[128];
         char hourStr[128];
         char minStr[128];
@@ -737,15 +723,13 @@ public:
         sprintf(yearStr, "%02d", ltm->tm_year + 1900);
         if (core::modComManager.getModuleName(name) == "radio")
         {
-            int mode = gui::mainWindow.getselectedDemodID(); //-1;
-            // core::modComManager.callInterface(name, RADIO_IFACE_CMD_GET_MODE, NULL, &mode);
+            int mode = gui::mainWindow.getselectedDemodID();
             if (mode >= 0)
             {
                 modeStr = radioModeToString[mode];
             };
         }
 
-        // Replace in template
         templ = std::regex_replace(templ, std::regex("\\$t"), type);
         templ = std::regex_replace(templ, std::regex("\\$f"), freqStr);
         templ = std::regex_replace(templ, std::regex("\\$h"), hourStr);
@@ -760,10 +744,8 @@ public:
 
     std::string genWavFileName(const double current, const int _mode)
     {
-        // {yymmdd}-{uxtime_ms}-{freq}-{band}-{receivername}.wav
-        std::string templ = "$y$M$d-$u-$f-$b-$n-$m.wav"; // "$y$M$d-$u-$f-$b-$n-$e.wav";
+        std::string templ = "$y$M$d-$u-$f-$b-$n-$m.wav";
 
-        // Get data
         time_t now = time(0);
         tm *ltm = localtime(&now);
         using namespace std::chrono;
@@ -785,7 +767,6 @@ public:
             flog::info("radio. RECORDER_MODE_BASEBAND. band {0}, baseband_band: {1}", band, baseband_band);
         }
 
-        // Format to string
         char freqStr[128];
         char dayStr[128];
         char monStr[128];
@@ -798,8 +779,7 @@ public:
         sprintf(yearStr, "%02d", ltm->tm_year - 100);
         sprintf(bandStr, "%d", int(band));
         sprintf(yearStr, "%02d", ltm->tm_year + 1900);
-        // 230615-1686831173_250-107400000-300-rp10.wav
-        // Replace in template
+
         templ = std::regex_replace(templ, std::regex("\\$y"), yearStr);
         templ = std::regex_replace(templ, std::regex("\\$M"), monStr);
         templ = std::regex_replace(templ, std::regex("\\$d"), dayStr);
@@ -823,8 +803,7 @@ public:
         {
             audioStreams.define(name, name, name);
         }
-        // Bind stream register/unregister handlers
-        flog::info("starting 1 postInit RecorderModule");
+
         onStreamRegisteredHandler.ctx = this;
         onStreamRegisteredHandler.handler = streamRegisteredHandler;
         sigpath::sinkManager.onStreamRegistered.bindHandler(&onStreamRegisteredHandler);
@@ -842,7 +821,7 @@ public:
             else
                 isServer = false;
             core::configManager.release();
-            currSource = sourcemenu::getCurrSource(); //  sigpath::sourceManager::getCurrSource();
+            currSource = sourcemenu::getCurrSource();
             if (currSource == SOURCE_ARM)
                 isARM = true;
             else
@@ -855,8 +834,7 @@ public:
             isServer = false;
             isControl = true;
         }
-        // flog::warn("radio. 6. selectedStreamName {0}, name. {1}", selectedStreamName, name);
-        // Select the stream
+
         selectStream(selectedStreamName);
         flog::info("[postInit] Checking conditions for workerInfoThread. isServer: {0}, isARM: {1}, isControl {2}", isServer, isARM, isControl);
         if (isServer || isARM || isControl)
@@ -891,9 +869,8 @@ public:
         RecorderModule *_this = (RecorderModule *)ctx;
         flog::info("[WorkerInfo] Thread started for instance '{0}'.", _this->name);
 
-        while (!g_stop_workers.load() && !_this->is_destructing.load()) //  && !_this->pleaseStop.load()
+        while (!g_stop_workers.load() && !_this->is_destructing.load())
         {
-            // рестарт
             if (_this->restart_pending.load())
             {
                 flog::info("[WorkerInfo] Executing restart for '{0}'...", _this->name);
@@ -911,17 +888,15 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
             if (_this->is_destructing.load())
-                break; // ранний выход
+                break;
 
             if (!_this->isControl)
             {
-                /// std::lock_guard<std::mutex> lock(g_instancesMutex);
                 if (_this->isServer && _this->name == "Запис")
                 {
                     if (gui::mainWindow.getUpdateMenuRcv3Record())
                     {
-                        // std::lock_guard<std::recursive_mutex> lck(_this->recMtx);
-                        bool should_record_from_gui = gui::mainWindow.getServerRecording(0); // getRecording();
+                        bool should_record_from_gui = gui::mainWindow.getServerRecording(0);
                         flog::info("[WorkerInfo SERVER] GUI Command: Set recording to {0}.", should_record_from_gui);
 
                         if (should_record_from_gui)
@@ -934,7 +909,7 @@ public:
                                 gui::mainWindow.setServerRecordingStart(gui::mainWindow.getCurrServer());
                                 _this->start();
                                 gui::mainWindow.setServerRecordingStart(gui::mainWindow.getCurrServer());
-                                _this->processing.store(1);
+                                _this->processing = 1;
                             }
                         }
                         else
@@ -942,9 +917,9 @@ public:
                             if (_this->recording.load())
                             {
                                 gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
-                                _this->stop(false, false);
+                                _this->stop();
                                 gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
-                                _this->processing.store(0);
+                                _this->processing = 0;
                             }
                         }
 
@@ -954,7 +929,6 @@ public:
                 }
             }
 
-            // ===== фон: АКФ + рестарт =====
             AkfState currentState = _this->akfState.load();
             bool restart_needed = _this->_restart.load();
 
@@ -963,26 +937,22 @@ public:
                 currentState == AkfState::SIGNAL_DETECTED ||
                 restart_needed)
             {
-                // std::lock_guard<std::recursive_mutex> lck(_this->recMtx);
                 currentState = _this->akfState.load();
 
                 if (currentState == AkfState::ANALYSIS_PENDING)
                 {
-                    // ВАЖНО: дергаем stop_akf(true) ТОЛЬКО если файл ещё пишется
                     if (_this->writer_akf)
                     {
                         flog::info("[WorkerInfo] '{0}': ANALYSIS_PENDING -> moving AKF file once.", _this->name);
-                        _this->stop_akf(true); // внутри writer_akf станет nullptr
+                        _this->stop_akf(true);
                     }
-                    // Если writer_akf уже nullptr — не логируем и не делаем ничего,
-                    // ждём UDP‑результат (моно‑хэндлер увидит его и сменит состояние)
                 }
                 else if (currentState == AkfState::NOISE_DETECTED)
                 {
                     flog::info("[WorkerInfo] '{0}': NOISE_DETECTED. Stopping main recording.", _this->name);
                     if (_this->recording.load())
                     {
-                        _this->stop(false, false);
+                        _this->stop(false);
                         if (!_this->_restart.load())
                         {
                             gui::mainWindow.setRecording(_this->recording.load());
@@ -1015,15 +985,12 @@ public:
         flog::info("[WorkerInfo] Thread for '{0}' is exiting.", _this->name);
     }
 
-    //=====================================================
     void start()
     {
-        // Флаг, который определит, нужно ли запускать поток анализа ПОСЛЕ снятия блокировки
         bool should_start_analysis_thread = false;
-        
         if (name == "Запис")
             gui::mainWindow.setUpdateMenuRcv3Record(false);
-        // Используем блок для ограничения области видимости и времени жизни lock_guard
+
         {
             flog::info("Starting start()");
             std::unique_lock<std::recursive_mutex> lck(recMtx);
@@ -1033,18 +1000,12 @@ public:
             }
             flog::info("Starting start() 1");
 
-            // =================================================================
-            // ШАГ 1: ОБЩАЯ ПОДГОТОВКА И ИНИЦИАЛИЗАЦИЯ
-            // =================================================================
-
-            // Сброс состояний от предыдущей записи
             analysisResultSignal.store(ANALYSIS_PENDING);
             Signal = -1;
             initialized = false;
             rms_history.clear();
             insert_REC.store(false);
 
-            // Чтение конфигурации
             core::configManager.acquire();
             try
             {
@@ -1134,20 +1095,13 @@ public:
                     NUM_INST = 0;
                 }
             }
-            akfUdpPort = SIport + NUM_INST; // добавь поле int akfUdpPort{0}; в классе
+            akfUdpPort = SIport + NUM_INST;
             flog::info("[RECORDER START {0}] Map: NUM_INST={1}, shortRecDirectory={2}, akfUdpPort={3}", name.c_str(), NUM_INST, shortRecDirectory.c_str(), akfUdpPort);
-            // Генерация имени файла, если его нет
-            // ===== 1) Сначала собираем данные ДЛЯ ИМЕНИ ФАЙЛА БЕЗ recMtx =====
+
             if (currWavFile.empty())
             {
                 int _mode = gui::mainWindow.getselectedDemodID();
                 std::string vfoName = (recMode == RECORDER_MODE_AUDIO) ? selectedStreamName : "Канал приймання";
-                /*
-                if (gui::waterfall.selectedVFO != "" && core::modComManager.getModuleName(gui::waterfall.selectedVFO) == "radio")
-                {
-                ///    core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_GET_MODE, NULL, &_mode);
-                }
-                */
                 flog::info("calc current freq...");
                 current = gui::waterfall.getCenterFrequency() + gui::waterfall.vfos[vfoName]->generalOffset;
                 flog::info("current freq ready: %.0f", current);
@@ -1155,7 +1109,6 @@ public:
             }
             flog::info("Starting recording for file: {0}", currWavFile);
 
-            // Настройка writer'а
             if (recMode == RECORDER_MODE_AUDIO)
             {
                 if (selectedStreamName.empty())
@@ -1167,18 +1120,17 @@ public:
                 samplerate = sigpath::iqFrontEnd.getSampleRate();
             }
             writer.setFormat(containers[containerId]);
-            writer.setChannels((recMode == RECORDER_MODE_AUDIO && !stereo) ? 1 : 2);
+            // Correctly set channels to 1 for mono audio recording.
+            writer.setChannels((recMode == RECORDER_MODE_AUDIO) ? 1 : 2);
             writer.setSampleType(sampleTypes[sampleTypeId]);
             writer.setSamplerate(samplerate);
 
-            std::string tmp_dir = wavPath + "/../tmp_recording"; // Общая временная директория
-            makeDir(wavPath.c_str());                            // Убеждаемся, что конечная папка для wav существует
+            std::string tmp_dir = wavPath + "/../tmp_recording";
+            makeDir(wavPath.c_str());
             makeDir(tmp_dir.c_str());
             expandedPath = expandString(tmp_dir + "/" + currWavFile);
             curr_expandedPath = expandString(wavPath + "/" + currWavFile);
-            // =================================================================
-            // ШАГ 2: ОТКРЫТИЕ ОСНОВНОГО ФАЙЛА ЗАПИСИ
-            // =================================================================
+
             flog::info("Opening main recording file: {0}", expandedPath);
             if (!writer.open(expandedPath))
             {
@@ -1186,9 +1138,25 @@ public:
                 return;
             }
 
-            // =================================================================
-            // ШАГ 3: ВЫБОР СЦЕНАРИЯ (АКФ ВКЛЮЧЕН ИЛИ ВЫКЛЮЧЕН)
-            // =================================================================
+            flog::info("preRecord {0} && isControlledChannel({1}) = {2}  && preRecordUse {3}", preRecord, name, isControlledChannel(name), preRecordUse);
+            if (preRecord && isControlledChannel(name) && preRecordUse)
+            {
+                flog::info("Writing pre-record buffer to file...");
+                std::vector<float> tempBuf;
+                tempBuf.reserve(96000); // Резервируем с запасом
+                float sample;
+                while (monoPreBuffer.pop(sample))
+                {
+                    tempBuf.push_back(sample);
+                }
+
+                if (!tempBuf.empty())
+                {
+                    writer.write(tempBuf.data(), tempBuf.size());
+                    flog::info("Wrote {0} mono samples from pre-record buffer.", tempBuf.size());
+                }
+            }
+
             flog::info("[RECORDER {0}] Entering start(). Current state: {1}, recMode: {2}",
                        name.c_str(), akfStateToString(akfState.load()), recMode);
 
@@ -1198,7 +1166,6 @@ public:
             {
                 if (!akfPreflightOk())
                 {
-                    // 💡 мягкий откат: делаем обычную запись без АКФ
                     AkfState old = akfState.load();
                     akfState.store(AkfState::IDLE);
                     flog::warn("[RECORDER {0}] [AKF] preflight failed → downgrade {1} -> {2}",
@@ -1223,7 +1190,6 @@ public:
                 std::string akf_final_dir = shortRecDirectory;
                 std::string akf_tmp_dir = shortRecDirectory + "/../tmp_recording";
 
-                // директории уже создавались в префлайте; вызываем повторно — это idempotent
                 try
                 {
                     std::filesystem::create_directories(akf_final_dir);
@@ -1259,114 +1225,49 @@ public:
             }
             else
             {
-                // ====== Ветка без АКФ ======
                 flog::info("[RECORDER {0}] AKF is DISABLED for this session (state={1}, flag_akf={2}).",
                            name.c_str(), akfStateToString(akfState.load()), flag_akf);
                 initiateSuccessfulRecording(1);
             }
 
-            // =================================================================
-            // ШАГ 4: ЗАПУСК АУДИО-ПОТОКОВ (SINK'ОВ)
-            // =================================================================
             if (recMode == RECORDER_MODE_AUDIO)
             {
-                if (stereo)
-                {
-                    stereoSink.setInput(&stereoStream);
-                    stereoSink.start();
-                }
-                else
-                {
-                    if (isPreRecord)
-                    {
-                        flog::info("preRecord {0} && isPreRecordChannel({1}) = {2} ", preRecord, name, isPreRecordChannel(name));
-                        // ДОПИСАТЬ ПРЕДЗАПИСЬ В ФАЙЛ
-                        
-                        std::vector<float> tempBuf;
-                        // tempBuf.reserve(96000); // Резервируем с запасом
-                        tempBuf.reserve(preBufferSizeInSamples > 0 ? preBufferSizeInSamples : 96000);
-                        float sample;
-                        while (monoPreBuffer->pop(sample))
-                        {
-                            tempBuf.push_back(sample);
-                        }
-                        flog::info("Writing pre-record buffer {0} to file...", tempBuf.size());
-
-
-                        if (!tempBuf.empty())
-                        { 
-                            if(should_start_analysis_thread) {
-                                writer_akf->write(tempBuf.data(), tempBuf.size());
-                                flog::info("Wrote (akf) {0} mono samples from pre-record buffer.", tempBuf.size());                                
-                            } else {
-                                writer.write(tempBuf.data(), tempBuf.size());
-                                flog::info("Wrote {0} mono samples from pre-record buffer.", tempBuf.size());
-
-                            }
-                        }
-                        isPreRecord = false; 
-                        s2m.stop();
-                        monoSink.stop();
-                        monoSink.init(&s2m.out, monoHandler, this);
-                    }
-                    else
-                    {
-                        monoSink.stop();
-                        monoSink.init(&s2m.out, monoHandler, this);
-                    }
-                    s2m.start();
-                    monoSink.start();
-                }
-                splitter.bindStream(&stereoStream);
-                isSplitterBound = true;
+                monoSink.start();
             }
             else if (recMode == RECORDER_MODE_PUREIQ)
             {
                 stereoSink.start();
-                splitter.bindStream(&stereoStream);
-                dummySink.init(&stereoStream, dummyHandler, this);
+                dummySink.init(&s2mStream, dummyHandler, this);
                 dummySink.start();
             }
             else
             {
-                // flog::info("[RECORDER '{0}'] Entering start() in BASEBAND mode", name); // <-- НОВЫЙ ЛОГ
                 basebandStream = new dsp::stream<dsp::complex_t>();
                 basebandSink.setInput(basebandStream);
                 basebandSink.start();
-                // flog::info("[RECORDER '{0}'] Attempting to bind to iqFrontEnd...", name); // <-- НОВЫЙ ЛОГ
                 sigpath::iqFrontEnd.bindIQStream(basebandStream);
-                // flog::info("[RECORDER '{0}'] Successfully bound to iqFrontEnd", name); // <-- НОВЫЙ ЛОГ
             }
 
-            // Финальные установки состояния
             recording.store(true);
             _restart.store(false);
-            // if (gui::mainWindow.getServerStatus(0) == 0)
             gui::mainWindow.setRecording(recording.load());
-            // gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
             flog::info("Starting 1 ...");
-
-        } // Мьютекс recMtx здесь автоматически освобождается
+        }
         flog::info("Starting 2 ...");
-        // =================================================================
-        // ШАГ 5: ЗАПУСК ПОТОКА АНАЛИЗА (ЕСЛИ НУЖНО)
-        // =================================================================
+
         if (should_start_analysis_thread)
         {
             flog::info("Starting AKF analysis thread...");
-            runAnalysisTask(); // Эта функция запускает detach-поток
+            runAnalysisTask();
         }
         flog::info("Starting 3 ...");
     }
 
-    // Возвращаем эту функцию в том виде, в котором она была
-    // и который работал для перемещения файла.
     void stop_akf(bool flag_rename = true)
     {
         flog::info("[RECORDER {0}] [STOP_AKF] 1. Called with flag_rename: {1}",
                    name.c_str(), flag_rename);
 
-        // Блокировка обязательна, так как мы работаем с общим ресурсом
         std::lock_guard<std::recursive_mutex> lck(recMtx);
 
         if (!writer_akf)
@@ -1385,7 +1286,6 @@ public:
 
         if (flag_rename)
         {
-            // Перемещаем файл для анализатора
             try
             {
                 flog::info("[RECORDER {0}] [STOP_AKF] 4a. Moving file for analysis from {1} to {2}",
@@ -1400,36 +1300,47 @@ public:
         }
         else
         {
-            // Удаляем временный файл, если он оказался шумом
             flog::info("[RECORDER {0}] [STOP_AKF] 4b. Deleting temporary AKF file: {1}",
                        name.c_str(), expandedPath_akf);
             std::filesystem::remove(expandedPath_akf);
         }
 
-        // Освобождаем память в любом случае
         delete writer_akf;
         writer_akf = nullptr;
 
         flog::info("[RECORDER {0}] [STOP_AKF] 6. Cleanup complete.", name.c_str());
     }
 
-    void stop(bool rename_and_save = true, bool finish = false)
+    void stop(bool rename_and_save = true)
     {
-        // 0) Один поток на стоп
-        static_assert(std::atomic<bool>::is_always_lock_free, "atomic<bool> required");
+        // ИСПОЛЬЗУЕМ БЛОКИРОВКУ НА ВСЮ ФУНКЦИЮ
+        // std::lock_guard<std::mutex> lock(stopMtx);
+        flog::info("[RECORDER STOP]");
+        preRecordSink.stop();
+
         if (isStopping.exchange(true))
         {
             flog::warn("[RECORDER STOP] Already stopping '{0}'.", name);
+            // Даже если выходим, preRecordSink уже остановлен, что безопасно.
+            return;
+        }
+
+        // Теперь флаг 'recording' - наша единственная проверка, нужна ли очистка.
+        // Флаг 'isStopping' больше не нужен для предотвращения двойного входа.
+        if (!recording.load())
+        {
+            flog::warn("[RECORDER STOP] Already not recording '{0}'.", name);
             return;
         }
 
         flog::info("[RECORDER STOP] Cleanup sequence started for '{0}'...", name);
 
-        // 1) Сигналим потокам
+        // Сигнализируем потоку анализа, что нужно остановиться
         pleaseStopAnalysis.store(true);
-        restart_pending.store(false); // важный сброс, чтобы после stop() ничего не перезапустилось
+        restart_pending.store(false);
         wakeShutdownPipe(shutdownPipeFd[1]);
-        // 2) Корректно останавливаем анализ (если он не detach, см. п.3)
+
+        // Ждем завершения потока анализа
         std::thread to_join;
         {
             std::lock_guard<std::mutex> lk(analysisThreadMtx);
@@ -1438,60 +1349,24 @@ public:
         }
         if (to_join.joinable())
             to_join.join();
-        /*
-        if (analysisThread.joinable())
-        {
-            if (shutdownPipeFd[1] != -1)
-            {
-                char buf = 'x';
-                // (void)write(shutdownPipeFd[1], &buf, 1);
-                if (write(shutdownPipeFd[1], &buf, 1) == -1 && errno != EPIPE)
-                {
-                }
-            }
-            analysisThread.join();
-        }
-        */
 
-        // 3) Останавливаем DSP и файл **только если реально шла запись**
-        if (recording.load())
+        // Эта проверка теперь избыточна, но оставим для безопасности.
+        // Главное, что `recording.exchange(false)` теперь будет вызван только один раз.
+        if (recording.exchange(false))
         {
             flog::info("[RECORDER] stop(): Stopping streams and closing writer...");
 
             if (recMode == RECORDER_MODE_AUDIO)
             {
-                if (isSplitterBound)
-                {
-                    splitter.unbindStream(&stereoStream);
-                    isSplitterBound = false;
-                }
                 monoSink.stop();
-                stereoSink.stop();
-                s2m.stop();
-                //     flog::info("[RECORDER] processing {0}", processing);
-                if (isPreRecordChannel(name) && !finish) //  && processing // isPreRecordChannel(name)
-                {
-                    monoSink.init(&s2m.out, preRecordMonoHandler, this);
-                    // Перед стартом цепочки — подготовить размер буфера предзаписи
-                    updatePreBufferSize();                    
-                    startAudioPath();
-                    /*
-                    s2m.stop();
-                    monoSink.stop();
-                    monoSink.init(&s2m.out, preRecordMonoHandler, this);
-                    s2m.start();
-                    monoSink.start();
-                    */
-                }
             }
             else if (recMode == RECORDER_MODE_PUREIQ)
             {
-                splitter.unbindStream(&stereoStream);
                 stereoSink.stop();
                 dummySink.stop();
             }
             else
-            { // baseband IQ
+            {
                 if (basebandStream)
                 {
                     sigpath::iqFrontEnd.unbindIQStream(basebandStream);
@@ -1501,10 +1376,8 @@ public:
                 }
             }
 
-            // Закрыть основной writer
             writer.close();
 
-            // Файловые операции
             if (!rename_and_save)
             {
                 try
@@ -1526,7 +1399,7 @@ public:
                         int result = parseSixthBlock(currWavFile);
                         if (result == 2 && !saveInDir)
                         {
-                            // ... генерация .conf при необходимости ...
+                            // ...
                         }
                         std::filesystem::rename(expandedPath, curr_expandedPath);
                     }
@@ -1548,7 +1421,6 @@ public:
                 }
             }
 
-            // HTTP‑хвосты
             if (status_direction && this_record)
             {
                 curlPOST_end_new();
@@ -1557,29 +1429,130 @@ public:
         }
         else
         {
-            if (isSplitterBound)
-            {
-                splitter.unbindStream(&stereoStream);
-                isSplitterBound = false;
-            }
-            monoSink.stop();
-            stereoSink.stop();
-            s2m.stop();
-
             flog::info("[RECORDER] stop(): Already not recording. Skipping DSP/file close.");
         }
 
-        // 4) Универсальный сброс состояния (всегда)
+        // Финальная очистка состояния
+        this_record = false;
+        currWavFile.clear();
+        akfState.store(AkfState::IDLE);
+        analysisResultSignal.store(ANALYSIS_NONE);
+
+        gui::mainWindow.setRecording(false);
+        flog::info("[RECORDER] Stop sequence for '{0}' finished.", name);
+    }
+
+    void stop2(bool rename_and_save = true)
+    {
+        if (isStopping.exchange(true))
+        {
+            flog::warn("[RECORDER STOP] Already stopping '{0}'.", name);
+            return;
+        }
+
+        flog::info("[RECORDER STOP] Cleanup sequence started for '{0}'...", name);
+
+        pleaseStopAnalysis.store(true);
+        restart_pending.store(false);
+        wakeShutdownPipe(shutdownPipeFd[1]);
+
+        std::thread to_join;
+        {
+            std::lock_guard<std::mutex> lk(analysisThreadMtx);
+            if (analysisThread.joinable())
+                to_join = std::move(analysisThread);
+        }
+        if (to_join.joinable())
+            to_join.join();
+
+        if (recording.load())
+        {
+            flog::info("[RECORDER] stop(): Stopping streams and closing writer...");
+
+            if (recMode == RECORDER_MODE_AUDIO)
+            {
+                monoSink.stop();
+            }
+            else if (recMode == RECORDER_MODE_PUREIQ)
+            {
+                stereoSink.stop();
+                dummySink.stop();
+            }
+            else
+            {
+                if (basebandStream)
+                {
+                    sigpath::iqFrontEnd.unbindIQStream(basebandStream);
+                    basebandSink.stop();
+                    delete basebandStream;
+                    basebandStream = nullptr;
+                }
+            }
+
+            writer.close();
+
+            if (!rename_and_save)
+            {
+                try
+                {
+                    std::filesystem::remove(expandedPath);
+                }
+                catch (const std::filesystem::filesystem_error &e)
+                {
+                    flog::error("[RECORDER] remove temp failed: {0}", e.what());
+                }
+            }
+            else
+            {
+                uint64_t seconds = writer.getSamplesWritten() / samplerate;
+                if (seconds >= 2)
+                {
+                    try
+                    {
+                        int result = parseSixthBlock(currWavFile);
+                        if (result == 2 && !saveInDir)
+                        {
+                            // ...
+                        }
+                        std::filesystem::rename(expandedPath, curr_expandedPath);
+                    }
+                    catch (const std::filesystem::filesystem_error &e)
+                    {
+                        flog::error("[RECORDER] rename/move failed: {0}", e.what());
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        std::filesystem::remove(expandedPath);
+                    }
+                    catch (const std::filesystem::filesystem_error &e)
+                    {
+                        flog::error("[RECORDER] remove short file failed: {0}", e.what());
+                    }
+                }
+            }
+
+            if (status_direction && this_record)
+            {
+                curlPOST_end_new();
+                status_direction = false;
+            }
+        }
+        else
+        {
+            flog::info("[RECORDER] stop(): Already not recording. Skipping DSP/file close.");
+        }
+
         recording.store(false);
         this_record = false;
         currWavFile.clear();
-        akfState.store(AkfState::IDLE); // ✅ чтобы фоновая логика не думала, что мы ещё ждём анализ
+        akfState.store(AkfState::IDLE);
         analysisResultSignal.store(ANALYSIS_NONE);
         flog::info("[RECORDER] LEAVING stop() successfully.");
         isStopping.store(false);
-        // if (gui::mainWindow.getServerStatus(0) == 0)
         gui::mainWindow.setRecording(recording.load());
-        // gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
         flog::info("[RECORDER] Stop requested for '{0}'. Flag cleared.", name);
     }
 
@@ -1588,6 +1561,22 @@ private:
     std::atomic<bool> restart_pending{false};
     std::mutex stopMtx;
     std::atomic<bool> isStopping{false};
+
+    // Pre-recording buffer variables
+    bool preRecord = true;
+    int preRecordTimeMs = 500;
+    bool preRecordUse = true; // New control variable
+    size_t preBufferSizeInSamples = 0;
+    LockFreeRingBuffer monoPreBuffer;
+
+    static bool isControlledChannel(const std::string &name)
+    {
+        if (name.rfind("Запис C", 0) == 0 && name.length() > 12)
+        {
+            return isdigit(name[12]);
+        }
+        return false;
+    }
 
     static int calcNumInst(const std::string &name)
     {
@@ -1607,7 +1596,7 @@ private:
             return 6;
         if (name == "Запис C8")
             return 7;
-        return 0; // "Запис"
+        return 0;
     }
 
     struct FileCloser
@@ -1624,7 +1613,7 @@ private:
         if (ChNumber < 0 || ChNumber > 7)
         {
             flog::warn("ChNumber must be between 0 and 7");
-            return va_root_dir; // недопустимый номер — возвращаем как есть
+            return va_root_dir;
         }
 
         std::string path = va_root_dir;
@@ -1639,7 +1628,6 @@ private:
             return match[1].str() + std::to_string(ChNumber);
         }
 
-        // Если не соответствует шаблону — оставляем без изменений
         return va_root_dir;
     }
 
@@ -1699,13 +1687,11 @@ private:
             throw std::runtime_error("JSON parse error: " + std::string(e.what()) + "\nRaw output:\n" + result);
         }
 
-        // Проверка на наличие ключей
         if (!parsed.contains("id") || !parsed.contains("filename"))
         {
             throw std::runtime_error("JSON does not contain required fields: 'id' and 'filename'\nRaw output:\n" + result);
         }
 
-        // Проверка на валидные значения
         if (parsed.value("id", 0) == 0 || parsed.value("filename", "").empty())
         {
             throw std::runtime_error("JSON contains invalid values (id == 0 or empty filename)\nRaw output:\n" + result);
@@ -1717,20 +1703,8 @@ private:
     void restart()
     {
         flog::info("[RECORDER] Restart requested for '{0}'.", name);
-        // 1. Устанавливаем флаг, что после остановки нужно будет сделать рестарт.
         restart_pending.store(true);
-
-        // 2. Инициируем асинхронную остановку.
-        stop(true, true); // true, так как при рестарте мы обычно хотим сохранить старый файл
-        /*
-        if (recording)
-        {
-            stop();
-        }
-        currWavFile = "";
-        // start_short.store(false);
-        start();
-        */
+        stop(true);
     }
 
     static void clientHandler(net::Conn client, void *ctx)
@@ -1747,16 +1721,13 @@ private:
             _this->conn->waitForEnd();
             _this->conn->close();
         }
-        else
-        {
-        }
 
         _this->listener->acceptAsync(clientHandler, _this);
     }
 
     dsp::tap<float> generateLowpassTaps(float sampleRate, float cutoffFreq, int numTaps)
     {
-        dsp::tap<float> taps = dsp::taps::alloc<float>(numTaps); // выделяем память
+        dsp::tap<float> taps = dsp::taps::alloc<float>(numTaps);
 
         float fc = cutoffFreq / sampleRate;
 
@@ -1773,45 +1744,33 @@ private:
 
     typedef int Socket;
 
-    // Функция исправления строки
     std::string fixMissingQuotes(const std::string &raw)
     {
         std::string fixed = raw;
-        // Добавляем кавычки вокруг ключей (например, Signal -> "Signal")
         fixed = std::regex_replace(fixed, std::regex(R"(\b([A-Za-z_][A-Za-z0-9_]*)\b(?=\s*:))"), R"("$1")");
-        // Добавляем кавычки к строковым значениям (например, DMR -> "DMR")
         fixed = std::regex_replace(fixed, std::regex(R"(:\s*([A-Za-z_][A-Za-z0-9_]*))"), R"(: "$1")");
-        // Удаляем лишние пробелы или переносы строк
         fixed.erase(std::remove(fixed.begin(), fixed.end(), '\n'), fixed.end());
         fixed.erase(std::remove(fixed.begin(), fixed.end(), '\r'), fixed.end());
         return fixed;
     }
-    // Функция для преобразования строки в JSON
+
     json parseUdpData(const std::string &info)
     {
         try
         {
-            // Попытка парсинга строки в JSON
-            json import = json::parse(info);
-            return import;
+            return json::parse(info);
         }
         catch (const json::parse_error &e)
         {
-            // Обработка ошибок парсинга
             flog::warn("Ошибка парсинга JSON: {0}", e.what());
         }
-        // if error
-        std::string raw_data = info;
-        std::string fixed_data = fixMissingQuotes(raw_data);
+
+        std::string fixed_data = fixMissingQuotes(info);
         try
         {
-            // Попытка парсинга строки в JSON
-            // info_withQuotes = "\"" + info_withQuotes + "\"";
             if (!fixed_data.empty() && fixed_data[0] == '{' && fixed_data.back() == '}')
             {
-                // Преобразование строки в JSON
                 json parsed_data = json::parse(fixed_data);
-                // Вывод JSON
                 std::cout << "Парсинг успешен:\n"
                           << parsed_data.dump(4) << std::endl;
                 return parsed_data;
@@ -1821,19 +1780,11 @@ private:
                 std::cerr << "Данные не являются корректным JSON.\n";
             }
         }
-        catch (const json::parse_error &e)
+        catch (const std::exception &e)
         {
             std::cerr << "Ошибка парсинга JSON: " << e.what() << std::endl;
         }
-        catch (const json::type_error &e)
-        {
-            std::cerr << "Ошибка типа JSON: " << e.what() << std::endl;
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "Другая ошибка: " << e.what() << std::endl;
-        }
-        return nullptr; // Можно вернуть пустой объект или обработать иначе
+        return nullptr;
     }
 
     bool makeDir(const char *dir)
@@ -1844,18 +1795,39 @@ private:
             return fs::create_directories(dir);
     }
 
+    void updatePreBufferSize()
+    {
+        if (!isControlledChannel(name))
+        {
+            preBufferSizeInSamples = 0;
+            return;
+        }
+
+        uint64_t currentSamplerate = 0;
+        if (recMode == RECORDER_MODE_AUDIO)
+        {
+            if (selectedStreamName.empty())
+                return;
+            currentSamplerate = sigpath::sinkManager.getStreamSampleRate(selectedStreamName);
+        }
+        else
+        {
+            preBufferSizeInSamples = 0;
+            return;
+        }
+
+        if (currentSamplerate > 0)
+        {
+            preBufferSizeInSamples = (currentSamplerate * preRecordTimeMs) / 1000.0;
+            flog::info("Pre-record buffer size updated: {0} samples for {1} ms at {2} Hz", preBufferSizeInSamples, preRecordTimeMs, currentSamplerate);
+        }
+    }
+
     static void menuHandler(void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-        /*
-        if (gui::mainWindow.getStopMenuUI())
-        {
-            return;
-        }
-        */
 
         float menuWidth = ImGui::GetContentRegionAvail().x;
-        // Recording mode
         if (_this->name != "Запис")
             ImGui::BeginDisabled();
         if (_this->Admin)
@@ -1869,7 +1841,7 @@ private:
                 config.acquire();
                 config.conf[_this->name]["mode"] = _this->recMode;
                 config.release(true);
-                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_FLOAT32); // ::SAMP_TYPE_INT16);
+                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_FLOAT32);
                 config.acquire();
                 config.conf[_this->name]["sampleType"] = _this->sampleTypes.key(_this->sampleTypeId);
                 config.release(true);
@@ -1882,7 +1854,7 @@ private:
                 config.acquire();
                 config.conf[_this->name]["mode"] = _this->recMode;
                 config.release(true);
-                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_INT16); // SAMP_TYPE_UINT8);
+                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_INT16);
                 config.acquire();
                 config.conf[_this->name]["sampleType"] = _this->sampleTypes.key(_this->sampleTypeId);
                 config.release(true);
@@ -1895,7 +1867,7 @@ private:
         {
             style::beginDisabled();
         }
-        // Recording path
+
         if (_this->recording.load() && _this->saveInDir)
         {
             if (_this->folderSelect.render("##_recorder_folder_" + _this->name))
@@ -1920,6 +1892,7 @@ private:
                 config.release(true);
             }
         }
+
         config.conf[_this->name]["container"] = _this->containers.key(0);
         if (!_this->Admin)
             ImGui::BeginDisabled();
@@ -1941,7 +1914,6 @@ private:
 
         if (_this->recMode == RECORDER_MODE_AUDIO)
         {
-            // Show additional audio options
             if (!_this->Admin)
                 ImGui::BeginDisabled();
 
@@ -1950,8 +1922,6 @@ private:
             int old_streamId = _this->streamId;
             if (ImGui::Combo(CONCAT("##_recorder_stream_", _this->name), &_this->streamId, _this->audioStreams.txt))
             {
-                // std::string strm_name = _this->audioStreams.value(_this->streamId);
-                // flog::info("TRACE! RECORD! name {0}, streamId {1}, new strm_name {2}", _this->name, _this->streamId, strm_name);
                 bool _ok = false;
                 if (_this->name == "Запис" && _this->strm_name == "Канал приймання")
                     _ok = true;
@@ -1964,7 +1934,6 @@ private:
 
                 if (_ok)
                 {
-                    // flog::warn("TRACE! RECORD! 1 selectStream {0}", _this->strm_name);
                     _this->selectStream(_this->strm_name);
 
                     config.acquire();
@@ -1976,7 +1945,6 @@ private:
                     {
                         _this->selectedStreamName = "";
                     }
-                    // flog::info("TRACE! RECORD! strm_name .{0}., _this->selectedStreamName  {1}", strm_name, _this->selectedStreamName);
 
                     if (_this->selectedStreamName != _this->strm_name)
                     {
@@ -2000,8 +1968,6 @@ private:
             _this->updateAudioMeter(_this->audioLvl);
             ImGui::FillWidth();
             ImGui::VolumeMeter(_this->audioLvl.l, _this->audioLvl.l, -60, 10);
-            // ImGui::FillWidth();
-            // ImGui::VolumeMeter(_this->audioLvl.r, _this->audioLvl.r, -60, 10);
             ImGui::LeftLabel("Рівень запису");
             ImGui::FillWidth();
             if (ImGui::SliderFloat(CONCAT("##_recorder_vol_", _this->name), &_this->audioVolume, 0, 1, "%0.2f"))
@@ -2016,7 +1982,6 @@ private:
         if (_this->name != "Запис")
             ImGui::EndDisabled();
 
-        // Record button
         bool canRecord = _this->folderSelect.pathIsValid();
         uint8_t currSrvr = gui::mainWindow.getCurrServer();
         if (_this->recMode == RECORDER_MODE_AUDIO)
@@ -2037,12 +2002,11 @@ private:
                 }
                 if (ImGui::Button(CONCAT("ЗАПИС на АРМ##_recorder_rec_startARM", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    // _this->cntDATA = 0;
                     _this->akfState.store(AkfState::IDLE);
                     _this->currWavFile = "";
                     _this->this_record = true;
                     _this->start();
-                    _this->processing.store(1);
+                    _this->processing = 1;
                     gui::mainWindow.setRecording(_this->recording.load());
                 }
                 if (_this->Admin)
@@ -2054,11 +2018,8 @@ private:
                             _this->akfState.store(AkfState::RECORDING);
                             _this->this_record = true;
                             _this->start();
-                            _this->processing.store(1);
-                            // if (gui::mainWindow.getServerStatus(0) > 0)
+                            _this->processing = 1;
                             gui::mainWindow.setRecording(_this->recording.load());
-                            // gui::mainWindow.setUpdateMenuSnd3Record(true);
-                            // gui::mainWindow.setServerRecordingStart(gui::mainWindow.getCurrServer());
                         }
                     }
                 }
@@ -2073,17 +2034,17 @@ private:
             {
                 if (ImGui::Button(CONCAT("ЗУПИНИТИ на АРМ##_recorder_rec_stop", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    _this->stop(false, false);
+                    _this->stop();
                     _this->this_record = false;
-                    // if (gui::mainWindow.getServerStatus(0) > 0)
                     gui::mainWindow.setRecording(_this->recording.load());
                     gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
-                    _this->processing.store(0);
+                    _this->processing = 0;
                 }
 
                 uint64_t seconds = _this->writer.getSamplesWritten() / _this->samplerate;
                 time_t diff = seconds;
                 tm *dtm = gmtime(&diff);
+
                 if (_this->ignoreSilence)
                 {
                     if (_this->ignoringSilence)
@@ -2112,12 +2073,11 @@ private:
                 }
                 if (ImGui::Button(CONCAT("ЗАПИС##_recorder_rec_start", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    //_this->cntDATA = 0;
                     _this->akfState.store(AkfState::IDLE);
                     _this->this_record = true;
                     _this->start();
                     gui::mainWindow.setServerRecordingStart(0);
-                    _this->processing.store(1);
+                    _this->processing = 1;
                 }
                 if (_this->Admin)
                 {
@@ -2129,7 +2089,6 @@ private:
                             _this->this_record = true;
                             _this->start();
                             gui::mainWindow.setServerRecordingStart(0);
-                            // if (gui::mainWindow.getServerStatus(0) > 0)
                             gui::mainWindow.setUpdateMenuSnd3Record(true);
                         }
                     }
@@ -2138,15 +2097,14 @@ private:
                 {
                     ImGui::EndDisabled();
                 }
-                // ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_Text), "Очікування --:--:--");
             }
             else
             {
                 if (ImGui::Button(CONCAT("ЗУПИНИТИ##_recorder_rec_stop", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    _this->stop(false, false);
+                    _this->stop();
                     gui::mainWindow.setServerRecordingStop(0);
-                    _this->processing.store(0);
+                    _this->processing = 0;
                     _this->this_record = false;
                 }
                 uint64_t seconds = _this->writer.getSamplesWritten() / _this->samplerate;
@@ -2187,7 +2145,6 @@ private:
         {
             if (gui::mainWindow.getServerStatus(currSrvr) > 1)
             {
-                // bool rec = gui::mainWindow.getServerRecording(CHNL);
                 if (!gui::mainWindow.getServerRecording(currSrvr))
                 {
                     bool _ifStartElseBtn = gui::mainWindow.getIfOneButtonStart();
@@ -2208,8 +2165,6 @@ private:
                     {
                         ImGui::EndDisabled();
                     }
-
-                    // ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_Text), "Очікування --:--:--");
                 }
                 else
                 {
@@ -2219,7 +2174,7 @@ private:
                         gui::mainWindow.setServerRecordingStop(currSrvr);
                         gui::mainWindow.setUpdateMenuSnd0Main(currSrvr, true);
                         gui::mainWindow.setUpdateMenuSnd3Record(true);
-                        _this->processing.store(0);
+                        _this->processing = 0;
                     }
                 }
             }
@@ -2244,40 +2199,36 @@ private:
         int WAIT_SEC = maxRecShortDur_sec + 4;
         akf_timeout_sec = WAIT_SEC;
 
-        int vaport = akfUdpPort; // SIport + NUM_INST;
+        int vaport = akfUdpPort;
         flog::info("[AKF WAIT] inst='{0}' port={1} file='{2}' dir='{3}'", name.c_str(), akfUdpPort, currWavFile.c_str(), shortRecDirectory.c_str());
-        // Вызываем listenUDP с передачей пайпа
+
         if (akfUdpPort <= 0)
         {
             flog::error("[AKF WAIT {0}] Invalid AKF UDP port: {1}. Disabling AKF for this take.",
                         name.c_str(), akfUdpPort);
             analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
-            // не забываем state-машину: workerInfo/monoHandler доберут это и остановят запись как шум/таймаут
             return;
         }
 
-        std::string info = net::listenUDP(host, vaport, akf_timeout_sec, interrupt_fd); // shutdownPipeFd[0]);
+        std::string info = net::listenUDP(host, vaport, akf_timeout_sec, interrupt_fd);
         akf_timeout_sec = 0;
-        // ================== НАЧАЛО ИСПРАВЛЕНИЯ ==================
-        // Теперь мы правильно обрабатываем ВСЕ возможные результаты от listenUDP
 
         if (info == "interrupted")
         {
             flog::info("Analysis for '{0}' was interrupted by a stop signal.", name);
             analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
         }
-        // if (ans == "error_bind" || ans == "error_select" || ans == "error_timeout") {
-        else if (info.rfind("error", 0) == 0) // Ловит "error_bind", "error_timeout", и т.д.
+        else if (info.rfind("error", 0) == 0)
         {
             flog::error("listenUDP for '{0}' failed with: {1}", name, info);
             analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
         }
-        else if (info.empty()) // На случай, если recvfrom вернул 0
+        else if (info.empty())
         {
             flog::warn("listenUDP for '{0}' returned empty data.", name);
             analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
         }
-        else // Если это не ошибка и не прерывание, значит, это данные JSON
+        else
         {
             flog::info("AKF json = {0}", info);
             json import = parseUdpData(info);
@@ -2320,86 +2271,58 @@ private:
                 analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
             }
         }
-        // =================== КОНЕЦ ИСПРАВЛЕНИЯ ====================
     }
 
     void runAnalysisTask()
     {
-        // 0) Новый запуск анализа — фиксируем состояние и снимаем рестарт
         pleaseStopAnalysis.store(false);
         drainShutdownPipe(shutdownPipeFd[0]);
         analysisResultSignal.store(ANALYSIS_PENDING);
         restart_pending.store(false);
         akf_timeout_sec = 0;
 
-        // 1) Подготовка: корректно гасим предыдущий поток и очищаем пайп
         std::thread oldThread;
         {
             std::lock_guard<std::mutex> lk(analysisThreadMtx);
-
-            // Будим старый поток (если был) и даём ему шанс выйти из select/recv
-            // pleaseStop.store(true);
             wakeShutdownPipe(shutdownPipeFd[1]);
-
-            // Забираем поток наружу, чтобы join делать ВНЕ мьютекса
             if (analysisThread.joinable())
                 oldThread = std::move(analysisThread);
-
-            // Сброс на новый запуск
             analysisSocketFd.store(-1);
-
-            // Осушаем читающую сторону, чтобы старые сигналы не сорвали новый select()
             drainShutdownPipe(shutdownPipeFd[0]);
-
-            // Готовим флаг к новому запуску
-            // pleaseStop.store(false);
         }
 
         if (oldThread.joinable())
             oldThread.join();
 
-        // 2) Стартуем новый joinable‑поток анализа
         analysisThread = std::thread([this]()
                                      {
-        flog::info("Starting analysis thread for '{0}'...", this->name);
+            flog::info("Starting analysis thread for '{0}'...", this->name);
 
-        struct Guard {
-            RecorderModule* self;
-            bool finished_ok = false;
-            ~Guard() {
-                if (!self) return;
-                if (!finished_ok) {
-                    self->analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
+            struct Guard {
+                RecorderModule* self;
+                bool finished_ok = false;
+                ~Guard() {
+                    if (!self) return;
+                    if (!finished_ok) {
+                        self->analysisResultSignal.store(ANALYSIS_ERROR_OR_TIMEOUT);
+                    }
+                    self->analysisSocketFd.store(-1);
                 }
-                self->analysisSocketFd.store(-1);
+            } guard{this, false};
+
+            try {
+                const int interrupt_fd = this->shutdownPipeFd[0];
+                if (interrupt_fd < 0) {
+                    flog::warn("startServer: interrupt_fd is invalid (<0); proceeding without interrupt.");
+                }            
+                this->startServer(interrupt_fd);
+                guard.finished_ok = true;
             }
-        } guard{this, false};
+            catch (const std::exception& e) {
+                flog::error("An exception in analysis thread for '{0}': {1}", this->name, e.what());
+            }
 
-        try {
-            // Если используешь этапы — можно раскомментировать:
-            // akfState.store(AKF_RUNNING);
-            // analysisResultSignal.store(ANALYSIS_RUNNING);
-
-            // Внутри startServer() ОБЯЗАТЕЛЬНО используем shutdownPipeFd[0] как interrupt_fd
-            // и возвращаемся быстро при прерывании.
-            // this->startServer();
-            const int interrupt_fd = this->shutdownPipeFd[0];
-            if (interrupt_fd < 0) {
-                flog::warn("startServer: interrupt_fd is invalid (<0); proceeding without interrupt.");
-            }            
-            this->startServer(interrupt_fd);
-
-            // Успешное завершение
-            // analysisResultSignal.store(ANALYSIS_OK);
-            // akfState.store(AKF_DONE);
-            guard.finished_ok = true;
-        }
-        catch (const std::exception& e) {
-            flog::error("An exception in analysis thread for '{0}': {1}", this->name, e.what());
-            // Guard проставит ERROR
-        }
-
-        flog::info("Analysis thread for '{0}' finished.", this->name); });
+            flog::info("Analysis thread for '{0}' finished.", this->name); });
     }
 
     void selectStream(std::string name)
@@ -2430,9 +2353,15 @@ private:
             selectedStreamName = _name;
             streamId = audioStreams.keyId(_name);
             volume.setInput(audioStream);
-            updatePreBufferSize();
+            startAudioPath(); // This now starts pre-record components as well
 
-            startAudioPath();
+            // Start pre-recording sink if applicable
+            flog::info("preRecord {0} && isControlledChannel({1}) = {2}  && recMode == RECORDER_MODE_AUDIO ({3})", preRecord, this->name, isControlledChannel(this->name), recMode == RECORDER_MODE_AUDIO);
+            if (preRecord && isControlledChannel(this->name) && recMode == RECORDER_MODE_AUDIO)
+            {
+                updatePreBufferSize();
+                flog::info("Pre-record sink started for {0}", this->name);
+            }
         }
         flog::info("TRACE! RECORD! selectStream  _name{0}", _name);
     }
@@ -2444,17 +2373,23 @@ private:
             selectedStreamName.clear();
             return;
         }
-        // flog::warn("--- TRACE! audioStream {0}", selectedStreamName);
 
         if (recording.load() && recMode == RECORDER_MODE_AUDIO)
         {
-            stop(false, false);
+            stop();
             gui::mainWindow.setServerRecordingStop(0);
         }
         {
             std::lock_guard<std::recursive_mutex> lck(recMtx);
             stopAudioPath();
+
             sigpath::sinkManager.unbindStream(selectedStreamName, audioStream);
+
+            float dummy;
+            while (monoPreBuffer.pop(dummy))
+            {
+                // Просто вычитываем и игнорируем
+            }
         }
         selectedStreamName.clear();
         audioStream = NULL;
@@ -2462,46 +2397,33 @@ private:
 
     void startAudioPath()
     {
-        flog::warn("startAudioPath");
-
         volume.start();
-        splitter.start();
+        stereoSplitter.start();
         meter.start();
-
-        if (isPreRecordChannel(name))
-        {
-            flog::warn("isPreRecordChannel({0})", name);
-
-            // monoSink.stop();
-            // s2m.stop();
-            // monoSink.init(&s2m.out, preRecordMonoHandler, this);
-            s2m.start();
-            monoSink.start();
-            splitter.bindStream(&stereoStream);
-            // flog::warn("preRecordMonoHandler START()");
-            audioPathRunning = true;
-        }
+        s2m.start();
+        monoSplitter.start();
+        monoSink.start();
+        preRecordSink.start();
     }
 
     void stopAudioPath()
     {
         volume.stop();
-        splitter.stop();
+        stereoSplitter.stop();
         meter.stop();
+        s2m.stop();
+        monoSplitter.stop();
+        monoSink.stop();
+        preRecordSink.stop();
     }
 
     static void streamRegisteredHandler(std::string name, void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-
-        // Add new stream to the list
         _this->audioStreams.define(name, name, name);
-
-        // If no stream is selected, select new stream. If not, update the menu ID.
         if (_this->selectedStreamName.empty())
         {
             _this->selectStream(name);
-            // flog::warn("TRACE! RECORD! 0 selectStream {0}", name);
         }
         else
         {
@@ -2512,11 +2434,7 @@ private:
     static void streamUnregisterHandler(std::string name, void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-
-        // Remove stream from list
         _this->audioStreams.undefineKey(name);
-
-        // If the stream is in used, deselect it and reselect default. Otherwise, update ID.
         if (_this->selectedStreamName == name)
         {
             _this->selectStream("");
@@ -2529,7 +2447,6 @@ private:
 
     void updateAudioMeter(dsp::stereo_t &lvl)
     {
-        // Note: Yes, using the natural log is on purpose, it just gives a more beautiful result.
         double frameTime = 1.0 / ImGui::GetIO().Framerate;
         lvl.l = std::clamp<float>(lvl.l - (frameTime * 50.0), -90.0f, 10.0f);
         lvl.r = std::clamp<float>(lvl.r - (frameTime * 50.0), -90.0f, 10.0f);
@@ -2554,49 +2471,31 @@ private:
         return std::regex_replace(input, std::regex("//"), "/");
     }
 
-    // 🔹 Константы шумоподавления    ==========================================================================
     const float SILENCE_LVL = 10e-5;
-    /*
-    1e-5 (0.00001) – слабый порог, оставляет почти все звуки.
-    1e-4 (0.0001) – средний порог, фильтрует слабый шум.
-    1e-3 (0.001) – агрессивный порог, приглушает почти всю тишину.
-    */
     const float NOISE_REDUCTION_FACTOR = 0.05f;
-    // constexpr float NOISE_REDUCTION_FACTOR = 0.05f;  // Коэффициент понижения шума
-    /*
-    0.1 – шум заметен, но слабее
-    0.05 – шум почти не слышен
-    0.01 – шум максимально подавлен, но может стать полностью неслышным
-    */
     const float NOISE_THRESHOLD = 0.2f * SILENCE_LVL;
-    // const float SIGNAL_LVL = 0.19f;
     const float NOISE_LVL = 0.5f;
     const float NOISE_SUPPRESSION_EXPONENT = 0.5f;
-    const int CALIBRATION_FRAMES = 1000; // Количество кадров для калибровки
+    const int CALIBRATION_FRAMES = 1000;
     const float NOISE_LVL_INITIAL = 0.4f;
     const float SIGNAL_LVL_INITIAL = 0.19f;
     const float MIN_NOISE_LEVEL = 0.0005f;
-    const int RMS_HISTORY_SIZE = 20;         // Размер истории значений RMS
-    const float RMS_SMOOTHING_FACTOR = 0.1f; // Коэффициент сглаживания резких скачков
+    const int RMS_HISTORY_SIZE = 20;
+    const float RMS_SMOOTHING_FACTOR = 0.1f;
 
-    // 🔧 Модифицированная функция адаптивного подавления шума
     inline float adaptiveNoiseReduction(float rms)
     {
         if (rms > NOISE_LVL)
-            return MIN_NOISE_LEVEL; // Максимальное приглушение шума
+            return MIN_NOISE_LEVEL;
         if (rms > signal_lvl)
         {
             float normalized = (NOISE_LVL - rms) / (NOISE_LVL - signal_lvl);
-            // Защита от выхода за границы [0, 1]
             normalized = fmaxf(0.0f, fminf(normalized, 1.0f));
-            // Теперь безопасно
             return MIN_NOISE_LEVEL + (1.0f - MIN_NOISE_LEVEL) * powf(normalized, NOISE_SUPPRESSION_EXPONENT);
-            //    return MIN_NOISE_LEVEL + (1.0f - MIN_NOISE_LEVEL) *
-            //                                 powf((noise_lvl - rms) / (noise_lvl - signal_lvl), NOISE_SUPPRESSION_EXPONENT);
         }
-        return 1.0f; // Оставляем полезный сигнал без изменений
+        return 1.0f;
     }
-    // 🔹 Дополнительные функции для тестирования различных степеней шумоподавления
+
     inline float noiseReductionFactorThree(float rms)
     {
         return (rms <= SILENCE_LVL) ? 1.0f : powf(SILENCE_LVL / rms, 3.0f);
@@ -2609,16 +2508,10 @@ private:
 
     inline bool wantAKF() const
     {
-        // АКФ работает только для аудио режима
         if (recMode != RECORDER_MODE_AUDIO)
             return false;
-
-        // Глобальный флаг из конфига
         if (!flag_akf)
             return false;
-
-        // Состояние устанавливается извне (GUI/модули)
-        // RECORDING = "записать короткий фрагмент и ждать UDP"
         return akfState.load() == AkfState::RECORDING;
     }
 
@@ -2626,36 +2519,26 @@ private:
     {
         try
         {
-            // 1) Папки (final + tmp)
             std::string akf_final_dir = shortRecDirectory;
             std::string akf_tmp_dir = shortRecDirectory + "/../tmp_recording";
 
             std::filesystem::create_directories(akf_final_dir);
             std::filesystem::create_directories(akf_tmp_dir);
 
-            // 2) (опционально) лёгкая проверка bind'а на наш порт
-            //   Если не хочешь трогать сеть — убери блок ниже.
             int s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-            if (s < 0)
-            {
-                flog::warn("[RECORDER {0}] [AKF] preflight: socket() failed: {1}",
-                           name.c_str(), strerror(errno));
-            }
-            else
+            if (s >= 0)
             {
                 int one = 1;
                 setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
                 sockaddr_in addr{};
                 addr.sin_family = AF_INET;
-                addr.sin_port = htons(akfUdpPort); // см. ниже где выставляем
+                addr.sin_port = htons(akfUdpPort);
                 addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                 if (::bind(s, (sockaddr *)&addr, sizeof(addr)) != 0)
                 {
                     int e = errno;
                     ::close(s);
-                    // EADDRINUSE — порт занят кем-то (например, незавершённый процесс анализатора/другой инстанс)
-                    flog::error("[RECORDER {0}] [AKF] preflight: UDP port {1} not free: {2}",
-                                name.c_str(), akfUdpPort, strerror(e));
+                    flog::error("[RECORDER {0}] [AKF] preflight: UDP port {1} not free: {2}", name.c_str(), akfUdpPort, strerror(e));
                     return false;
                 }
                 ::close(s);
@@ -2664,70 +2547,47 @@ private:
         }
         catch (const std::exception &e)
         {
-            flog::error("[RECORDER {0}] [AKF] preflight failed: {1}",
-                        name.c_str(), e.what());
+            flog::error("[RECORDER {0}] [AKF] preflight failed: {1}", name.c_str(), e.what());
             return false;
         }
     }
     void deferredStop(bool flag_rename)
     {
-        // Небольшая пауза, чтобы дать monoHandler гарантированно завершиться.
-        // 10 миллисекунд более чем достаточно.
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         this->stop_akf(false);
-        // Вызываем нашу обычную функцию stop
         this->stop(flag_rename);
     }
 
     void processAkfSuccess(int signalValue)
     {
-        // Небольшая пауза, чтобы monoHandler вышел из текущего вызова.
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
         flog::info("[PROCESSOR] Processing successful AKF result with signal {0}", signalValue);
-
-        // Блокируем мьютекс, чтобы безопасно изменять состояние модуля
         std::lock_guard lck(recMtx);
 
-        // Проверяем, не была ли запись уже остановлена по другой причине
         if (!recording.load())
         {
             flog::warn("[PROCESSOR] Recording was stopped before AKF success could be processed. Aborting.");
             return;
         }
-
-        // Проверяем, не обработали ли мы уже этот сигнал
         if (insert_REC.load())
         {
             flog::warn("[PROCESSOR] AKF success has already been processed. Ignoring duplicate call.");
             return;
         }
 
-        // Обновляем Signal для внешнего интерфейса
         Signal = signalValue;
         status_direction = true;
-
-        // Устанавливаем флаг, что мы начали обработку
         insert_REC.store(true);
 
-        // =============================================================
-        // ВЫПОЛНЯЕМ КРИТИЧЕСКУЮ ОПЕРАЦИЮ
-        // =============================================================
-        // `insert_REC_PGDB` вернет true и обновит currWavFile (по ссылке или как-то еще)
-        // Предположим, что она изменяет this->currWavFile
         if (!insert_REC_PGDB(this->currWavFile))
         {
             flog::error("[PROCESSOR] FAILED to create record in DB for {0}", this->currWavFile);
         }
         else
         {
-            // Теперь, когда имя файла обновлено, используем его
             flog::info("[PROCESSOR] Record in DB for new file name '{0}' created successfully!", this->currWavFile);
-
-            // Обновляем пути, которые могут понадобиться в stop()
             this->folderSelect.setPath(this->wavPath);
             this->curr_expandedPath = this->expandString(this->folderSelect.path + "/" + this->currWavFile);
-
             flog::info("[PROCESSOR] Starting POST request for {0}", this->currWavFile);
             if (this->this_record)
                 this->curlPOST_begin_new();
@@ -2736,116 +2596,102 @@ private:
 
     void initiateSuccessfulRecording(int signalValue)
     {
-        // Эта функция может быть вызвана из разных потоков,
-        // поэтому блокировка в самом начале обязательна.
-        std::lock_guard lck(recMtx);
+        // Шаг 1: Под блокировкой быстро читаем и меняем все необходимые переменные
+        std::string file_to_process;
+        bool should_run_post = false;
 
-        // Проверяем, не была ли запись уже остановлена или обработана.
+        { // Начало критической секции
+            std::lock_guard lck(recMtx);
+            if (insert_REC.load())
+            {
+                flog::warn("[INITIATOR] Recording already stopped or initiated. Aborting.");
+                return;
+            }
+            flog::info("[INITIATOR] Initiating successful recording with signal {0}", signalValue);
+
+            Signal = signalValue;
+            status_direction = true;
+            insert_REC.store(true);
+
+            // Копируем данные, необходимые для долгих операций
+            file_to_process = this->currWavFile;
+            should_run_post = this->this_record;
+
+        } // Конец критической секции. recMtx освобожден.
+
+        // Шаг 2: Выполняем долгие, блокирующие операции БЕЗ блокировки
+        if (!insert_REC_PGDB(file_to_process))
+        {
+            flog::error("[INITIATOR] FAILED to create record in DB for {0}", file_to_process);
+        }
+        else
+        {
+            flog::info("[INITIATOR] Record in DB for new file name '{0}' created successfully!", this->currWavFile);
+
+            // Эти операции тоже должны быть вне блокировки, если они могут быть долгими
+            this->folderSelect.setPath(this->wavPath);
+            this->curr_expandedPath = this->expandString(this->folderSelect.path + "/" + this->currWavFile);
+
+            flog::info("[INITIATOR] Starting POST request for {0}", this->currWavFile);
+            if (should_run_post)
+                this->curlPOST_begin_new();
+        }
+    }
+
+    void initiateSuccessfulRecording2(int signalValue)
+    {
+        std::lock_guard lck(recMtx);
         if (insert_REC.load())
         {
             flog::warn("[INITIATOR] Recording already stopped or initiated. Aborting.");
             return;
         }
-
         flog::info("[INITIATOR] Initiating successful recording with signal {0}", signalValue);
-
-        // Устанавливаем все флаги и переменные
         Signal = signalValue;
         status_direction = true;
         insert_REC.store(true);
 
-        // Выполняем запись в БД и получаем новое имя файла
         if (!insert_REC_PGDB(this->currWavFile))
         {
             flog::error("[INITIATOR] FAILED to create record in DB for {0}", this->currWavFile);
         }
         else
         {
-            // Успех! Обновляем пути с новым именем файла
             flog::info("[INITIATOR] Record in DB for new file name '{0}' created successfully!", this->currWavFile);
             this->folderSelect.setPath(this->wavPath);
             this->curr_expandedPath = this->expandString(this->folderSelect.path + "/" + this->currWavFile);
-
             flog::info("[INITIATOR] Starting POST request for {0}", this->currWavFile);
             if (this->this_record)
                 this->curlPOST_begin_new();
         }
     }
-    void updatePreBufferSize()
-    {
-        // Предзапись только в аудио-режиме
-        if (recMode != RECORDER_MODE_AUDIO || stereo)
-        {
-            preBufferSizeInSamples = 0;
-            monoPreBuffer.reset();
-            return;
-        }
 
-        uint64_t sr = 0;
-        if (!selectedStreamName.empty())
-            sr = sigpath::sinkManager.getStreamSampleRate(selectedStreamName);
-
-        if (sr == 0)
-        {
-            monoPreBuffer.reset();
-            preBufferSizeInSamples = 0;
-            return;
-        }
-
-        size_t need = static_cast<size_t>((sr * preRecordTimeMs) / 1000.0);
-        if (need < 1024)
-            need = 1024;
-
-        if (!monoPreBuffer || monoPreBuffer->capacity() != need)
-        {
-            monoPreBuffer = std::make_unique<LockFreeRingBuffer>(need);
-            flog::info("Pre-record ring buffer allocated: {} samples ({} ms at {} Hz)",
-                       need, preRecordTimeMs, sr);
-        }
-        preBufferSizeInSamples = need;
-    }
-    // --- отладка предбуфера: добавьте счётчик, чтобы убедиться, что handler идёт
     static void preRecordMonoHandler(float *data, int count, void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-        
-        // flog::warn("preRecordMonoHandler isPreRecord {0} ", _this->isPreRecord);
-        if (!_this->isPreRecord)
-            return;
-
-        if (!data || count <= 0)
-            return;
-
-        // во время записи предбуфер не наполняем
-        if (_this->recording.load())
-            return;
-        if (!_this->preRecord)
-            return;
-
-        auto *buf = _this->monoPreBuffer.get();
-        if (!buf)
-            return;
-
-        // flog::warn("preRecordMonoHandler 2 count {0} ", count);
-        for (int i = 0; i < count; ++i)
+        if (!data || count <= 0 || !_this->recording.load())
         {
-            buf->push(data[i]);
+            return;
+        }
+
+        if (_this->preRecord && isControlledChannel(_this->name))
+        {
+            // НЕТ БОЛЬШЕ НИКАКИХ МЬЮТЕКСОВ!
+            for (int i = 0; i < count; ++i)
+            {
+                _this->monoPreBuffer.push(data[i]);
+            }
         }
     }
-        
-    //=============================================================
-    // 🔹 Основная функция обработки звука (моно)
+
     static void monoHandler(float *data, int count, void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
         if (!data || count <= 0)
             return;
+        if (!_this->recording.load())
+            return;
 
-        // =================================================================
-        // ШАГ 1: ПРОВЕРКА РЕЗУЛЬТАТА АНАЛИЗА (если мы его ждем)
-        // =================================================================
-        // Эта проверка имеет высший приоритет, так как может привести к остановке.
-        // Мы проверяем это, только если находимся в состоянии ожидания.
         if (_this->akfState.load() == AkfState::ANALYSIS_PENDING)
         {
             int resultSignal = _this->analysisResultSignal.load();
@@ -2862,87 +2708,52 @@ private:
                     _this->akfState.store(AkfState::SIGNAL_DETECTED);
                     flog::info("[MONO_HANDLER] Analysis result: SIGNAL {0}. State -> SIGNAL_DETECTED.", resultSignal);
                 }
-
-                // ✅ результат потреблён
                 _this->analysisResultSignal.store(ANALYSIS_NONE);
             }
         }
-        // =================================================================
-        // ШАГ 2: ЗАПИСЬ АУДИОДАННЫХ
-        // =================================================================
 
-        // Запись в ОСНОВНОЙ файл происходит всегда, пока идет запись.
         _this->writer.write(data, count);
-        // flog::info("            [MONO_HANDLER] count {0}", count);
-        // Запись во ВРЕМЕННЫЙ файл АКФ происходит только в состоянии RECORDING.
+
         if (_this->akfState.load() == AkfState::RECORDING)
         {
-            // Проверяем, что writer_akf существует и открыт
             if (_this->writer_akf && _this->writer_akf->isOpen())
             {
                 _this->writer_akf->write(data, count);
-
-                // Проверяем, не достигнута ли нужная длительность для анализа
                 uint64_t samples_written_akf = _this->writer_akf->getSamplesWritten();
                 if ((samples_written_akf / _this->samplerate) >= _this->maxRecShortDur_sec)
                 {
-                    // Короткая запись завершена. Переводим состояние в "ожидание анализа".
-                    // workerInfo увидит это состояние и вызовет stop_akf(true).
                     _this->akfState.store(AkfState::ANALYSIS_PENDING);
                     flog::info("[MONO_HANDLER] Short recording phase finished. State -> ANALYSIS_PENDING.");
                 }
             }
         }
 
-        // =================================================================
-        // ШАГ 3: ПРОВЕРКА НА МАКСИМАЛЬНУЮ ДЛИТЕЛЬНОСТЬ ЗАПИСИ
-        // =================================================================
-        // Эта логика не связана с АКФ и должна работать всегда.
-        // Она атомарно выставляет флаг, на который также среагирует workerInfo.
         if (!_this->_restart.load())
         {
             uint64_t seconds_main = _this->writer.getSamplesWritten() / _this->samplerate;
             if (seconds_main >= _this->maxRecDuration * 60)
             {
                 flog::info("[MONO_HANDLER] Max recording duration ({0}s) reached. Triggering restart.", seconds_main);
-                _this->_restart.store(true); // Этот флаг будет обработан потоком workerInfo.
+                _this->_restart.store(true);
             }
         }
     }
 
     static void stereoHandler(dsp::stereo_t *data, int count, void *ctx)
     {
-        RecorderModule *_this = (RecorderModule *)ctx;
-        if (_this->ignoreSilence)
-        {
-            float absMax = 0.0f;
-            float *_data = (float *)data;
-            int _count = count * 2;
-            for (int i = 0; i < _count; i++)
-            {
-                float val = fabsf(_data[i]);
-                if (val > absMax)
-                {
-                    absMax = val;
-                }
-            }
-            _this->ignoringSilence = (absMax < _this->SILENCE_LVL);
-            if (_this->ignoringSilence)
-            {
-                return;
-            }
-        }
-        fprintf(stderr, "[recorder] stereoHandler called: count = %d\n", count);
-        _this->writer.write((float *)data, count);
+        // This handler is not used for recording in the current mono-only logic
+        // but is kept for potential future use.
     }
 
     static void complexHandler(dsp::complex_t *data, int count, void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-        // flog::info("complexHandler: called with count = {}", count);
+        if (!_this->recording.load())
+            return;
+
         uint64_t seconds = _this->writer.getSamplesWritten() / _this->samplerate;
         if (_this->_restart == false)
-        { // _this->radioMode > 0 &&
+        {
             if (seconds >= _this->maxRecDuration * 60)
             {
                 flog::info("seconds {0}, maxRecDuration {1}, radioMode {2}", seconds, _this->maxRecDuration, _this->radioMode);
@@ -2955,13 +2766,12 @@ private:
 
     static void dummyHandler(dsp::stereo_t *, int, void *)
     {
-        // ничего не делаем
     }
 
     static void iqHandler(dsp::complex_t *data, int count, void *ctx)
     {
         RecorderModule *_this = static_cast<RecorderModule *>(ctx);
-        _this->writer.write(reinterpret_cast<float *>(data), count * 2); // 2 float per complex sample
+        _this->writer.write(reinterpret_cast<float *>(data), count * 2);
     }
 
     static void moduleInterfaceHandler(int code, void *in, void *out, void *ctx)
@@ -2970,8 +2780,7 @@ private:
         if (code == RECORDER_IFACE_CMD_STOP)
         {
             flog::info("RECORDER_IFACE_CMD_STOP: name {0}, _this->recording {1}", _this->name, _this->recording.load());
-            // _this->stop_was_requested.store(true);
-            _this->stop(true, true);
+            _this->stop(true);
             _this->akfState.store(AkfState::IDLE);
             return;
         }
@@ -2981,7 +2790,6 @@ private:
         {
             int *_out = (int *)out;
             *_out = _this->Signal;
-            // flog::info("[IFACE] GET_SIGNAL_AKF {0}", _this->Signal);
         }
         else if (code == RECORDER_IFACE_GET_AKF_TIMEOUT)
         {
@@ -3038,10 +2846,9 @@ private:
                 flog::info("RECORDER_IFACE_CMD_SET_MODE: _this->sampleTypeId {0}, _this->recMode {1}", _this->sampleTypeId, _this->recMode);
             }
             if (_this->recMode == RECORDER_MODE_AUDIO)
-                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_INT16); // SAMP_TYPE_UINT8);
+                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_INT16);
             else
-                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_FLOAT32); // ::SAMP_TYPE_INT16
-            // sigpath::sinkManager.setStreamSampleRate(_this->selectedStreamName, diffSamplingRate);
+                _this->sampleTypeId = _this->sampleTypes.valueId(wav::SAMP_TYPE_FLOAT32);
         }
         else if (code == RECORDER_IFACE_CMD_START)
         {
@@ -3049,8 +2856,6 @@ private:
             std::string s((char *)_in);
             _this->currWavFile = _this->expandString(s);
             flog::info("RECORDER_IFACE_CMD_START: name {0}, recording {1},  file = {2}, _this->akfState {3}", _this->name, _this->recording.load(), _this->currWavFile, akfStateToString(_this->akfState.load()));
-            // _this->start_short = false;
-            //  sigpath::sinkManager.setStreamSampleRate(_this->selectedStreamName, diffSamplingRate);
             if (!_this->recording.load())
             {
                 _this->start();
@@ -3060,27 +2865,10 @@ private:
         {
             std::string *_out = (std::string *)out;
             std::string currWavFile = std::string(_this->nameTemplate) + ".wav";
-            *_out = currWavFile.c_str(); // ->nameTemplate;
+            *_out = currWavFile.c_str();
         }
-        // else if (code == RECORDER_IFACE_CMD_STOP)
-        // {
-        //     _this->akfState.store(AkfState::IDLE);
-        //     _this->stop(true);
-        // }
         else if (code == RECORDER_IFACE_CMD_SET_STREAM)
         {
-            int *_in = (int *)in;
-            // std::string _StreamName((char*)_in);
-            /*
-            config.acquire();
-            if (config.conf[_this->name].contains("audioStream")) {
-                _this->selectedStreamName = config.conf[_this->name]["audioStream"];
-            }
-            else {
-                _this->selectedStreamName = "";
-            }
-            config.release();
-            */
             std::string strm_name = "";
             if (_this->name == "Запис")
                 strm_name = "Канал приймання";
@@ -3116,27 +2904,21 @@ private:
             }
             _this->selectStream(strm_name);
             _this->volume.setMuted(false);
-            // sigpath::iqFrontEnd.setSampleRate(8000);
             flog::info("RECORDER_IFACE_CMD_SET_STREAM _this->streamId {0}, strm_name {1}", _this->streamId, strm_name);
             _this->selectStream(_this->audioStreams.value(_this->streamId));
-            // sigpath::sinkManager.setStreamSampleRate(_this->selectedStreamName, diffSamplingRate);
-            // _this->streamId = 0;
         }
         else if (code == MAIN_SET_START)
         {
-             flog::info("MAIN_SET_START processing {0}", _this->processing.load());  
-            _this->processing.store(1);
+            _this->processing = 1;
         }
         else if (code == MAIN_SET_STOP)
         {
-            flog::info("MAIN_SET_STOP processing {0}", _this->processing.load());  
-            _this->processing.store(0);
+            _this->processing = 0;
         }
         else if (code == MAIN_GET_PROCESSING)
         {
             int *_out = (int *)out;
-            // flog::info("RECORDER MAIN_GET_PROCESSING _this->processing {0}",_this->processing);
-            *_out = _this->processing.load();
+            *_out = _this->processing;
         }
         else if (code == MAIN_SET_STATUS_CHANGE)
         {
@@ -3148,9 +2930,7 @@ private:
             int *_out = (int *)out;
             if (_this->changing == 1)
             {
-                // flog::info("MAIN_GET_STATUS_CHANGE {0}", _this->changing);
                 *_out = 1;
-                // flog::info("MAIN_GET_STATUS_CHANGE {0}", _this->changing);
                 _this->changing = 0;
             }
             else
@@ -3160,7 +2940,6 @@ private:
         }
     }
 
-    //=====================================================
     int safe_to_int(const std::string &s)
     {
         try
@@ -3175,9 +2954,7 @@ private:
 
     std::string build_args_from_filename(const std::string &filename)
     {
-        // Оставим только имя файла без пути и расширения
         std::string name = std::filesystem::path(filename).stem().string();
-
         std::vector<std::string> parts;
         std::stringstream ss(name);
         std::string item;
@@ -3186,18 +2963,15 @@ private:
         {
             parts.push_back(item);
         }
-
         if (parts.size() < 7)
         {
             throw std::runtime_error("Некорректное имя файла, ожидается минимум 7 полей");
         }
-        // 20250525-1748195540333-500650000-12500-P1-4-ЧМ.wav
 
         std::string unixtime = parts[1];
         std::string freq = parts[2];
         std::string band = parts[3];
 
-        // 🟡 receiver: берём только цифры из parts[4]
         int receiver_num = 0;
         for (char c : parts[4])
         {
@@ -3209,10 +2983,9 @@ private:
         std::string radiomode = parts[5];
         std::string modulation = parts[6];
 
-        // 🟢 Создаём новое имя файла с заменой поля "receiver" на цифру
         std::string new_filename = parts[0] + "-" + unixtime + "-" + freq + "-" + band + "-" +
                                    receiver + "-" + radiomode + "-" + modulation + ".wav";
-        // 🟢 Аргументы для скрипта
+
         std::string args = "\"" + new_filename + "\" " + unixtime + " " + freq + " " +
                            modulation + " " + radiomode + " " + band + " " + receiver;
 
@@ -3282,10 +3055,8 @@ private:
                 curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
                 curl_easy_setopt(curl, CURLOPT_POST, 1L);
                 curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-                // Быстрые таймауты
                 curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 750L);
                 curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 400L);
-                // Отключить проверку сертификата для localhost (если нужен HTTPS)
                 curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
                 curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
@@ -3360,37 +3131,32 @@ private:
         return false;
     }
 
-    //=================================================
     enum
     {
         SINK_MODE_TCP,
         SINK_MODE_UDP
     };
-    // Новая система флагов
     enum StopReason
     {
         NONE = 0,
-        FROM_NOISE = 1, // Остановка из-за шума
-        FROM_GUI = 2    // Обычная остановка пользователем (если нужно)
+        FROM_NOISE = 1,
+        FROM_GUI = 2
     };
     enum class AkfDecision
     {
-        PENDING,  // Решение еще не принято
-        CONTINUE, // Запись продолжается
-        STOP      // Запись нужно остановить
+        PENDING,
+        CONTINUE,
+        STOP
     };
     std::atomic<AkfDecision> akfDecision;
 
     static constexpr int ANALYSIS_NONE = -2;
-    static constexpr int ANALYSIS_PENDING = -1;         // Анализ еще не завершен
-    static constexpr int ANALYSIS_NOISE_OR_TIMEOUT = 0; // Шум, ошибка или таймаут
-    static constexpr int ANALYSIS_ERROR_OR_TIMEOUT = 3; // НВ
+    static constexpr int ANALYSIS_PENDING = -1;
+    static constexpr int ANALYSIS_NOISE_OR_TIMEOUT = 0;
+    static constexpr int ANALYSIS_ERROR_OR_TIMEOUT = 3;
 
-    // Атомарная переменная для результата.
-    // Если > 0, это значение сигнала.
-    // Если равно константе, это статус.
     std::atomic<int> analysisResultSignal{ANALYSIS_PENDING};
-    //=================================================================================================================
+
     bool saveInDir = false;
     std::string wavPath = "/opt/recordings/";
     std::string expandedPath;
@@ -3398,7 +3164,6 @@ private:
     std::string curr_expandedPath;
     std::string curr_expandedPath_akf;
 
-    // std::string name;
     bool enabled = true;
     std::string root;
     char nameTemplate[1024];
@@ -3406,7 +3171,7 @@ private:
     OptionList<std::string, wav::Format> containers;
     OptionList<int, wav::SampleType> sampleTypes;
     OptionList<int, SamplingRate> samplingRates;
-    int sampleTypeId = 1; // sampleTypes.valueId(wav::SAMP_TYPE_INT16);
+    int sampleTypeId = 1;
     int samplingRateId = 0;
     FolderSelect folderSelect;
     FolderSelect folderSelect_akf;
@@ -3426,10 +3191,20 @@ private:
     std::recursive_mutex recMtx;
 
     dsp::stream<dsp::complex_t> *basebandStream;
-    dsp::stream<dsp::stereo_t> stereoStream;
+    // --- Start of Corrected DSP Chain Members ---
+    dsp::stream<dsp::stereo_t> stereoStream; // Dummy for stereoSink, not used for mono path
+    dsp::stream<dsp::stereo_t> meterStream;
+    dsp::stream<dsp::stereo_t> s2mStream;
+    dsp::stream<float> monoSinkStream;
+    dsp::stream<float> preRecordSinkStream;
+    dsp::routing::Splitter<dsp::stereo_t> stereoSplitter;
+    dsp::routing::Splitter<float> monoSplitter;
+    // --- End of Corrected DSP Chain Members ---
+
     dsp::sink::Handler<dsp::complex_t> basebandSink;
     dsp::sink::Handler<dsp::stereo_t> stereoSink;
     dsp::sink::Handler<float> monoSink;
+    dsp::sink::Handler<float> preRecordSink;
 
     dsp::stream<dsp::complex_t> *narrowIQStream = nullptr;
     dsp::filter::DecimatingFIR<dsp::complex_t, float> *decimator = nullptr;
@@ -3439,7 +3214,6 @@ private:
     dsp::sink::Handler<dsp::complex_t> iqSink;
     dsp::sink::Handler<dsp::stereo_t> dummySink;
 
-    // for RECORDER_MODE_PUREIQ
     dsp::stream<dsp::complex_t> *iqInputStream = nullptr;
     dsp::demod::pureIQ<dsp::complex_t> *iqFilter = nullptr;
     dsp::sink::Handler<dsp::complex_t> pureIQSink;
@@ -3447,12 +3221,10 @@ private:
     OptionList<std::string, std::string> audioStreams;
     int streamId = 0;
     dsp::stream<dsp::stereo_t> *audioStream = NULL;
-    // --- Start of Corrected DSP Chain Members ---
     dsp::audio::Volume volume;
-    dsp::routing::Splitter<dsp::stereo_t> splitter;
-    dsp::stream<dsp::stereo_t> meterStream;
     dsp::bench::PeakLevelMeter<dsp::stereo_t> meter;
     dsp::convert::StereoToMono s2m;
+
     uint64_t samplerate = 8000;
 
     EventHandler<std::string> onStreamRegisteredHandler;
@@ -3461,7 +3233,7 @@ private:
     std::string currWavFile = "";
     double current = 88000000.0;
 
-    std::atomic<bool> processing = 0;
+    int processing = 0;
     int changing = 0;
 
     bool isARM = false;
@@ -3481,13 +3253,12 @@ private:
     bool status_direction = false;
     int baseband_band = 1000000;
 
-    //=================
     bool flag_akf = false;
     int maxRecShortDur_sec = 3;
     std::string shortRecDirectory = "/var/lib/avr/cws/data/receiver/va_only";
     std::string longRecDirectory = "/var/lib/avr/cws/data/receiver/records";
 
-    std::string host = "localhost"; //"127.0.0.1";
+    std::string host = "localhost";
     char hostname[1024];
     int SIport = 63001;
 
@@ -3514,55 +3285,19 @@ private:
     std::thread analysisThread;
     std::mutex analysisThreadMtx;
     std::atomic<int> analysisSocketFd{-1};
-    int shutdownPipeFd[2] = {-1, -1}; // [0] = read end, [1] = write end
+    int shutdownPipeFd[2] = {-1, -1};
     int akf_timeout_sec = 0;
     std::atomic<bool> pleaseStopAnalysis{false};
     std::atomic<bool> is_destructing{false};
     int akfUdpPort = 0;
-
-    // Pre-recording buffer variables
-    bool preRecord = true;
-    int preRecordTimeMs = 500;
-    std::unique_ptr<LockFreeRingBuffer> monoPreBuffer;
-    size_t preBufferSizeInSamples = 0;
-    bool isPreRecord = false;
-    
-    bool isPreRecordChannel(const std::string &name)
-    {
-        if (!preRecord)
-            return false;
-        if (recMode != RECORDER_MODE_AUDIO)
-            return false;
-        if (stereo)
-            return false;
-        if (preRecordTimeMs < 100)
-            return false;
-        const std::string prefix = "Запис C";
-        if (name.rfind(prefix, 0) == 0 && !name.empty())
-        {
-            char last = name.back();
-            if (last >= '1' && last <= '9')
-            {
-                isPreRecord = true;
-                return isPreRecord;
-            };
-        }
-        return false;
-    }
-
-    bool meterDetachedForRecord = false;
-    bool audioPathRunning = false;
 };
 
 std::atomic<bool> RecorderModule::g_stop_workers{false};
 
 MOD_EXPORT void _INIT_()
 {
-    // При инициализации модуля мы сбрасываем флаг остановки.
-    // Потоки должны иметь возможность работать.
-    RecorderModule::g_stop_workers.store(false); // <-- ИСПРАВЛЕНО
+    RecorderModule::g_stop_workers.store(false);
 
-    // Create default recording directory
     std::string root = (std::string)core::args["root"];
     if (!std::filesystem::exists(root + "/recordings"))
     {

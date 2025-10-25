@@ -617,14 +617,15 @@ public:
         // Init sinks
         basebandSink.init(NULL, complexHandler, this);
         stereoSink.init(&stereoStream, stereoHandler, this);
-        if (!isPreRecordChannel(name))
-        { /// Оставляем так как есть.
-            monoSink.init(&s2m.out, monoHandler, this);
+        monoSink.init(&s2m.out, monoHandler, this);
+        if (isPreRecordChannel(name))
+        {
+            ioSampleRate.store(8000, std::memory_order_relaxed); // базовая Fs для C1..C8 — 8000
+
+
+
         }
-        else
-        { // только для Control
-            monoSink.init(&s2m.out, preRecordMonoHandler, this);
-        }
+        initPrebuffer();
         // флаг для управления meter на время записи
         meterDetachedForRecord = false;
 
@@ -637,14 +638,15 @@ public:
         }
         else
         {
-            flog::info("Shutdown pipe created: rfd=%d, wfd=%d", shutdownPipeFd[0], shutdownPipeFd[1]);
+            flog::info("Shutdown pipe created: rfd={0}, wfd={1}", shutdownPipeFd[0], shutdownPipeFd[1]);
         }
         processing.store(0);
         gui::menu.registerEntry(name, menuHandler, this);
 
-        flog::info("finish constructor RecorderModule");
 
-        flog::warn(" RegisterInterface: {0}", name);
+
+        flog::info("finish constructor RecorderModule {0}", name);
+
         core::modComManager.registerInterface("recorder", name, moduleInterfaceHandler, this);
         // flog::warn("radio. 2. strm_name {0}, selectedStreamName {1}, name.size() {2}", strm_name.c_str(), selectedStreamName, name.size());
     }
@@ -695,7 +697,7 @@ public:
             if (writer_akf->isOpen())
             {
                 writer_akf->close();
-            }            
+            }
             delete writer_akf;
             writer_akf = nullptr;
         }
@@ -878,6 +880,50 @@ public:
         flog::info("finish postInit RecorderModule");
     }
 
+    void initPrebuffer()
+    {
+        // Предзапись применима только к аудио-моно каналам C1..C8
+        if (!isPreRecordChannel(name))
+        {
+            monoPreBuffer.reset();
+            preBufferSizeInSamples = 0;
+            return;
+        }
+        flog::info("[REC DEBUG] {}: preRecordTimeMs={} ms (до min(2000))", name, preRecordTimeMs);
+        // фиксируем базовую Fs для C1..C8 — 8000 Гц
+        uint32_t fs = 8000;
+        uint32_t ms = std::min<uint32_t>(preRecordTimeMs, 2000); // clamp к 2 секундам
+        // Берём текущую оценку Fs (обновится в monoHandler при первом заходе)
+        fs = ioSampleRate.load(std::memory_order_relaxed);
+        size_t needSamples = (size_t)((uint64_t)ms * fs / 1000u);
+        if (needSamples < fs / 10)
+            needSamples = fs / 10; // не слишком маленький буфер
+
+        preBufferSizeInSamples = needSamples;
+
+        // одноразовое выделение кольца при старте, с перезаписью на переполнении
+        monoPreBuffer = std::make_unique<LockFreeRingBuffer>(preBufferSizeInSamples);
+
+        // до первого старта записи копим предзапись
+        isPreRecord = true;
+        preBufferDrained.store(false, std::memory_order_release);
+    }
+
+    void akfFeedForAnalysis(const float *data, int count)
+    {
+        (void)data;
+        (void)count;
+    }
+
+    void updateSampleRateIfKnown(uint32_t fsDetect)
+    {
+        if (fsDetect >= 8000 && fsDetect <= 192000)
+        {
+            ioSampleRate.store(fsDetect, std::memory_order_relaxed);
+            // без пересоздания кольца — минимальные изменения
+        }
+    }
+
     void enable()
     {
         enabled = true;
@@ -919,7 +965,7 @@ public:
 
             if (currentState == AkfState::AWAITING_PRERECORD_RESTART)
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            else    
+            else
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
             if (_this->is_destructing.load())
@@ -954,7 +1000,7 @@ public:
                             if (_this->recording.load())
                             {
                                 gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
-                                _this->stop(false, false);
+                                _this->stop(true, false);
                                 gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
                                 _this->processing.store(0);
                             }
@@ -995,7 +1041,7 @@ public:
                     if (!_this->is_destructing.load() && !_this->recording.load())
                     {
                         flog::info("[WorkerInfo] Executing delayed pre-record restart for '{0}'", _this->name);
-                        _this->startAudioPath();
+                        // _this->startAudioPath();
                     }
                     else
                     {
@@ -1043,10 +1089,11 @@ public:
                 {
                     flog::info("[WorkerInfo] '{0}': SIGNAL_DETECTED. Finalizing recording.", _this->name);
                     // Гарантированно очищаем writer_akf, если он еще существует
-                    if (_this->writer_akf) {
+                    if (_this->writer_akf)
+                    {
                         flog::info("[WorkerInfo] '{0}': SIGNAL_DETECTED -> performing defensive cleanup of AKF writer.", _this->name);
                         _this->stop_akf(false); // Вызываем с 'false', чтобы просто удалить временный файл
-                    }                    
+                    }
                     if (_this->recording.load())
                         _this->initiateSuccessfulRecording(_this->Signal);
 
@@ -1216,6 +1263,10 @@ public:
             {
                 samplerate = sigpath::iqFrontEnd.getSampleRate();
             }
+            if (isPreRecordChannel(name))
+            {
+                samplerate = 8000;
+            }
             writer.setFormat(containers[containerId]);
             writer.setChannels((recMode == RECORDER_MODE_AUDIO && !stereo) ? 1 : 2);
             writer.setSampleType(sampleTypes[sampleTypeId]);
@@ -1328,27 +1379,31 @@ public:
                 {
                     if (isPreRecord)
                     {
-                        flog::info("Pre-record is active for {0}. Preparing for seamless start.", name);
+                        flog::info("Pre-record is active for {0}. Seamless start (no handler switch).", name);
 
-                        // 1. Сбрасываем флаг. Теперь monoHandler знает, что при первом вызове нужно слить буфер.
-                        preBufferDrained.store(false);
 
-                        // 2. ПЕРЕКЛЮЧАЕМ обработчик с preRecordMonoHandler на основной monoHandler.
-                        // Это ключевой шаг, который остается здесь.
-                        s2m.stop();
-                        monoSink.stop();
-                        monoSink.init(&s2m.out, monoHandler, this);
+
+
+                        // Флаг: monoHandler выполнит одноразовый слив предбуфера
+                        preBufferDrained.store(false, std::memory_order_release);
+
+
+
                     }
-                    else // Это ветка для канала "Запис" или если предзапись отключена
+
+                    // Если уже идёт предзаписьный путь (C1..C8), цепочка s2m/monoSink уже запущена — НЕ стартуем повторно
+                    if (!(isPreRecordChannel(name) && audioPathRunning))
                     {
-                        monoSink.stop();
-                        monoSink.init(&s2m.out, monoHandler, this);
+                        s2m.start();
+                        monoSink.start();
                     }
-                    s2m.start();
-                    monoSink.start();
+
+
                 }
-                splitter.bindStream(&stereoStream);
-                isSplitterBound = true;
+                if (!isSplitterBound) {
+                    splitter.bindStream(&stereoStream);
+                    isSplitterBound = true;
+                }
             }
             else if (recMode == RECORDER_MODE_PUREIQ)
             {
@@ -1445,21 +1500,26 @@ public:
 
     void stop(bool rename_and_save = true, bool finish = false)
     {
-        // 0) Один поток на стоп
-        static_assert(std::atomic<bool>::is_always_lock_free, "atomic<bool> required");
         if (isStopping.exchange(true))
         {
             flog::warn("[RECORDER STOP] Already stopping '{0}'.", name);
             return;
         }
 
+        // Теперь флаг 'recording' - наша единственная проверка, нужна ли очистка.
+        // Флаг 'isStopping' больше не нужен для предотвращения двойного входа.
+        if (!recording.load())
+        {
+            flog::warn("[RECORDER STOP] Already not recording '{0}'.", name);
+            return;
+        }
+
         flog::info("[RECORDER STOP] Cleanup sequence started for '{0}'...", name);
 
-        // 1) Сигналим потокам
         pleaseStopAnalysis.store(true);
-        restart_pending.store(false); // важный сброс, чтобы после stop() ничего не перезапустилось
+        restart_pending.store(false);
         wakeShutdownPipe(shutdownPipeFd[1]);
-        // 2) Корректно останавливаем анализ (если он не detach, см. п.3)
+
         std::thread to_join;
         {
             std::lock_guard<std::mutex> lk(analysisThreadMtx);
@@ -1468,78 +1528,28 @@ public:
         }
         if (to_join.joinable())
             to_join.join();
-        /*
-        if (analysisThread.joinable())
-        {
-            if (shutdownPipeFd[1] != -1)
-            {
-                char buf = 'x';
-                // (void)write(shutdownPipeFd[1], &buf, 1);
-                if (write(shutdownPipeFd[1], &buf, 1) == -1 && errno != EPIPE)
-                {
-                }
-            }
-            analysisThread.join();
-        }
-        */
 
-        // 3) Останавливаем DSP и файл **только если реально шла запись**
         if (recording.load())
         {
-            flog::info("[RECORDER] stop(): Stopping streams and closing writer...");
+            flog::info("[RECORDER] stop(): Stopping streams and closing writer..., finish {0}, audioPathRunning {1}" , finish, audioPathRunning);
+
+            writer.close();
 
             if (recMode == RECORDER_MODE_AUDIO)
             {
-                if (isSplitterBound)
+                if ((!isPreRecordChannel(name) || finish) && audioPathRunning)
                 {
-                    splitter.unbindStream(&stereoStream);
-                    isSplitterBound = false;
-                }
-                monoSink.stop();
-                stereoSink.stop();
-                s2m.stop();
-                //     flog::info("[RECORDER] processing {0}", processing);
-                /*
-                if (isPreRecordChannel(name) && !finish) //  && processing // isPreRecordChannel(name)
-                {
-                    monoSink.init(&s2m.out, preRecordMonoHandler, this);
-                    // Перед стартом цепочки — подготовить размер буфера предзаписи
-                    updatePreBufferSize();
-                    startAudioPath();
-                    // s2m.stop();
-                    // monoSink.stop();
-                    // monoSink.init(&s2m.out, preRecordMonoHandler, this);
-                    // s2m.start();
-                    // monoSink.start();
-                }
-                */
-            }
-            else if (recMode == RECORDER_MODE_PUREIQ)
-            {
-                splitter.unbindStream(&stereoStream);
-                stereoSink.stop();
-                dummySink.stop();
-            }
-            else
-            { // baseband IQ
-                if (basebandStream)
-                {
-                    sigpath::iqFrontEnd.unbindIQStream(basebandStream);
-                    basebandSink.stop();
-                    delete basebandStream;
-                    basebandStream = nullptr;
+                    flog::info("[RECORDER] stop(): monoSink.stop() ...");
+                    monoSink.stop();
                 }
             }
-
-            // Закрыть основной writer
-            writer.close();
-
-            // Файловые операции
+        
             if (!rename_and_save)
             {
                 try
                 {
                     std::filesystem::remove(expandedPath);
+                    flog::info("[RECORDER] stop(): remove ...");
                 }
                 catch (const std::filesystem::filesystem_error &e)
                 {
@@ -1556,7 +1566,7 @@ public:
                         int result = parseSixthBlock(currWavFile);
                         if (result == 2 && !saveInDir)
                         {
-                            // ... генерация .conf при необходимости ...
+                            // ...
                         }
                         std::filesystem::rename(expandedPath, curr_expandedPath);
                     }
@@ -1578,7 +1588,6 @@ public:
                 }
             }
 
-            // HTTP‑хвосты
             if (status_direction && this_record)
             {
                 curlPOST_end_new();
@@ -1587,42 +1596,17 @@ public:
         }
         else
         {
-            if (isSplitterBound)
-            {
-                splitter.unbindStream(&stereoStream);
-                isSplitterBound = false;
-            }
-            monoSink.stop();
-            stereoSink.stop();
-            s2m.stop();
-
             flog::info("[RECORDER] stop(): Already not recording. Skipping DSP/file close.");
         }
 
-        // 4) Универсальный сброс состояния (всегда)
         recording.store(false);
-        processing.store(0);
         this_record = false;
         currWavFile.clear();
-        preBufferDrained.store(false);
-
-        if (!finish && isPreRecordChannel(name))
-        {
-            // Если это не финальный останов и канал требует предзаписи,
-            // планируем отложенный перезапуск.
-            akfState.store(AkfState::AWAITING_PRERECORD_RESTART);
-        }
-        else
-        {
-            // Во всех остальных случаях — просто переходим в IDLE.
-            akfState.store(AkfState::IDLE);
-        }        
+        akfState.store(AkfState::IDLE);
         analysisResultSignal.store(ANALYSIS_NONE);
         flog::info("[RECORDER] LEAVING stop() successfully.");
         isStopping.store(false);
-        // if (gui::mainWindow.getServerStatus(0) == 0)
         gui::mainWindow.setRecording(recording.load());
-        // gui::mainWindow.setServerRecordingStop(gui::mainWindow.getCurrServer());
         flog::info("[RECORDER] Stop requested for '{0}'. Flag cleared.", name);
     }
 
@@ -1764,7 +1748,7 @@ private:
         restart_pending.store(true);
 
         // 2. Инициируем асинхронную остановку.
-        stop(true, true); // true, так как при рестарте мы обычно хотим сохранить старый файл
+        stop(true, false); // true, так как при рестарте мы обычно хотим сохранить старый файл
         /*
         if (recording)
         {
@@ -2116,7 +2100,7 @@ private:
             {
                 if (ImGui::Button(CONCAT("ЗУПИНИТИ на АРМ##_recorder_rec_stop", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    _this->stop(false, false);
+                    _this->stop(true, false);
                     _this->this_record = false;
                     // if (gui::mainWindow.getServerStatus(0) > 0)
                     gui::mainWindow.setRecording(_this->recording.load());
@@ -2187,7 +2171,7 @@ private:
             {
                 if (ImGui::Button(CONCAT("ЗУПИНИТИ##_recorder_rec_stop", _this->name), ImVec2(menuWidth, 0)))
                 {
-                    _this->stop(false, false);
+                    _this->stop(true, false);
                     gui::mainWindow.setServerRecordingStop(0);
                     _this->processing.store(0);
                     _this->this_record = false;
@@ -2491,7 +2475,7 @@ private:
 
         if (recording.load() && recMode == RECORDER_MODE_AUDIO)
         {
-            stop(false, false);
+            stop(true, false);
             gui::mainWindow.setServerRecordingStop(0);
         }
         {
@@ -2514,23 +2498,35 @@ private:
         if (isPreRecordChannel(name))
         {
             flog::warn("isPreRecordChannel({0})", name);
-
-            // monoSink.stop();
-            // s2m.stop();
-            // monoSink.init(&s2m.out, preRecordMonoHandler, this);
             s2m.start();
             monoSink.start();
+
+            // Биндим сплиттер и фиксируем флаг, чтобы stop()/stopAudioPath() знали, что развязывать
             splitter.bindStream(&stereoStream);
-            // flog::warn("preRecordMonoHandler START()");
+            isSplitterBound = true;
+
             audioPathRunning = true;
         }
     }
 
     void stopAudioPath()
     {
-        volume.stop();
-        splitter.stop();
+        // Если до этого биндили — снимем привязку аккуратно
+        if (isSplitterBound)
+        {
+            splitter.unbindStream(&stereoStream);
+            isSplitterBound = false;
+        }
+
         meter.stop();
+        splitter.stop();
+        volume.stop();
+
+        // На всякий случай останавливаем конвертер/синк предзаписи
+        s2m.stop();
+        monoSink.stop();
+
+        audioPathRunning = false;
     }
 
     static void streamRegisteredHandler(std::string name, void *ctx)
@@ -2814,8 +2810,13 @@ private:
                 this->curlPOST_begin_new();
         }
     }
+
     void updatePreBufferSize()
     {
+        if (isPreRecordChannel(name))
+        {
+            return;
+        }
         // Предзапись только в аудио-режиме
         if (recMode != RECORDER_MODE_AUDIO || stereo)
         {
@@ -2847,34 +2848,6 @@ private:
         }
         preBufferSizeInSamples = need;
     }
-    // --- отладка предбуфера: добавьте счётчик, чтобы убедиться, что handler идёт
-    static void preRecordMonoHandler(float *data, int count, void *ctx)
-    {
-        RecorderModule *_this = (RecorderModule *)ctx;
-
-        // flog::warn("preRecordMonoHandler isPreRecord {0} ", _this->isPreRecord);
-        if (!_this->isPreRecord)
-            return;
-
-        if (!data || count <= 0)
-            return;
-
-        // во время записи предбуфер не наполняем
-        if (_this->recording.load())
-            return;
-        if (!_this->preRecord)
-            return;
-
-        auto *buf = _this->monoPreBuffer.get();
-        if (!buf)
-            return;
-
-        // flog::warn("preRecordMonoHandler 2 count {0} ", count);
-        for (int i = 0; i < count; ++i)
-        {
-            buf->push(data[i]);
-        }
-    }
 
     //=============================================================
     // 🔹 Основная функция обработки звука (моно)
@@ -2883,45 +2856,59 @@ private:
         RecorderModule *_this = (RecorderModule *)ctx;
         if (!data || count <= 0)
             return;
+        if(_this->isStopping.load() || _this->_restart.load())    
+            return;
 
+        if (_this->isPreRecord && _this->isPreRecordChannel(_this->name) && _this->monoPreBuffer && !_this->writer.isOpen())
+        {
+            for (int i = 0; i < count; ++i)
+                _this->monoPreBuffer->push(data[i]);
+        }
         // Проверяем, нужно ли сбросить буфер предзаписи.
         // Это делается только один раз за сессию.
-        if (_this->isPreRecord && !_this->preBufferDrained.load())
+        if (_this->isPreRecord && !_this->preBufferDrained.load() && _this->monoPreBuffer && _this->writer.isOpen())
         {
             bool expected = false;
-            if (_this->preBufferDrained.compare_exchange_strong(expected, true))
+            if (_this->preBufferDrained.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
             {
+                // 0) spill текущего блока
+                std::vector<float> spill;
+                spill.assign(data, data + count);
+
+                // 1) слить предбуфер в tempBuf
                 std::vector<float> tempBuf;
                 tempBuf.reserve(_this->preBufferSizeInSamples > 0 ? _this->preBufferSizeInSamples : 96000);
                 float sample;
-                while (_this->monoPreBuffer->pop(sample))
-                {
-                    tempBuf.push_back(sample);
-                }
+                while (_this->monoPreBuffer && _this->monoPreBuffer->pop(sample))
 
+                    tempBuf.push_back(sample);
+
+
+                // 2) запись предзаписи
                 if (!tempBuf.empty())
                 {
-                    flog::info("Writing {0} pre-recorded samples...", tempBuf.size());
-
-                    // 1. Всегда пишем в основной файл `writer`, если он открыт.
                     if (_this->writer.isOpen())
-                    {
-                        _this->writer.write(tempBuf.data(), tempBuf.size());
-                        flog::info("-> Wrote to main file.");
-                    }
+                        _this->writer.write(tempBuf.data(), (int)tempBuf.size());
 
-                    // 2. Если активен режим АКФ, дополнительно пишем в `writer_akf`.
-                    if (_this->akfState.load() == AkfState::RECORDING)
-                    {
-                        if (_this->writer_akf && _this->writer_akf->isOpen())
-                        {
-                            _this->writer_akf->write(tempBuf.data(), tempBuf.size());
-                            flog::info("-> Wrote to AKF file as well.");
-                        }
-                    }
+                    if (_this->akfState.load() == AkfState::RECORDING && _this->writer_akf && _this->writer_akf->isOpen())
+                        _this->writer_akf->write(tempBuf.data(), (int)tempBuf.size());
+
+                    flog::info("PreRecord drained: {} samples.", (int)tempBuf.size());
                 }
-                // Сбрасываем флаг isPreRecord после использования буфера
+
+                // 3) запись сохраненного текущего блока (spill)
+                if (!spill.empty())
+                {
+                    if (_this->writer.isOpen())
+                        _this->writer.write(spill.data(), (int)spill.size());
+
+                        if (_this->akfState.load() == AkfState::RECORDING && _this->writer_akf && _this->writer_akf->isOpen())
+                        _this->writer_akf->write(spill.data(), (int)spill.size());
+                }
+
+                // После первого слива — предзапись больше не нужна
                 _this->isPreRecord = false;
+                return; // текущий входящий блок уже записан из spill
             }
         }
         // =================================================================
@@ -2955,7 +2942,8 @@ private:
         // =================================================================
 
         // Запись в ОСНОВНОЙ файл происходит всегда, пока идет запись.
-        _this->writer.write(data, count);
+        if (_this->writer.isOpen())
+            _this->writer.write(data, count);
         // flog::info("            [MONO_HANDLER] count {0}", count);
         // Запись во ВРЕМЕННЫЙ файл АКФ происходит только в состоянии RECORDING.
         if (_this->akfState.load() == AkfState::RECORDING)
@@ -2990,6 +2978,10 @@ private:
                 flog::info("[MONO_HANDLER] Max recording duration ({0}s) reached. Triggering restart.", seconds_main);
                 _this->_restart.store(true); // Этот флаг будет обработан потоком workerInfo.
             }
+        }
+        if (_this->akfState.load() == AkfState::ANALYSIS_PENDING)
+        {
+            _this->akfFeedForAnalysis(data, count);
         }
     }
 
@@ -3054,7 +3046,7 @@ private:
         {
             flog::info("RECORDER_IFACE_CMD_STOP: name {0}, _this->recording {1}", _this->name, _this->recording.load());
             // _this->stop_was_requested.store(true);
-            _this->stop(true, true);
+            _this->stop(true, false);
             _this->akfState.store(AkfState::IDLE);
             _this->processing.store(0);
             return;
@@ -3605,11 +3597,11 @@ private:
     int akfUdpPort = 0;
 
     // Pre-recording buffer variables
-    bool preRecord = true;
-    int preRecordTimeMs = 500;
-    std::unique_ptr<LockFreeRingBuffer> monoPreBuffer;
-    size_t preBufferSizeInSamples = 0;
-    bool isPreRecord = false;
+
+
+
+
+
 
     bool isPreRecordChannel(const std::string &name)
     {
@@ -3634,9 +3626,19 @@ private:
         return false;
     }
 
+    bool preRecord = true;
+    int preRecordTimeMs = 500;
+    std::unique_ptr<LockFreeRingBuffer> monoPreBuffer;
+    size_t preBufferSizeInSamples = 0;
+    bool isPreRecord = false;
     bool meterDetachedForRecord = false;
     bool audioPathRunning = false;
-    std::atomic<bool> preBufferDrained{false};
+    std::atomic<bool> drainRequested{false};   // однократный слив предбуфера при старте
+    std::atomic<bool> preRecordEnabled{false}; // предзапись разрешена (для Запис C1..C8)
+
+    // Техническое: мы не знаем точную Fs при старте модуля — предусмотрим "ленивую" проверку
+    std::atomic<bool> preBufferDrained{false}; // нужен: используется в start/stop/monoHandler
+    std::atomic<uint32_t> ioSampleRate{8000};
 };
 
 std::atomic<bool> RecorderModule::g_stop_workers{false};

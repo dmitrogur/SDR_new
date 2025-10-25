@@ -524,8 +524,7 @@ private:
                 return;
             }
 
-            flog::info("List change requested: from '{0}' to '{1}' (id={2}). Running: {3}",
-                       oldSelectedListName, newSelectedListName, newSelectedId, running.load());
+            flog::info("List change requested: from '{0}' to '{1}' (id={2}).",oldSelectedListName, newSelectedListName, newSelectedId);
 
             // --- Шаг 3: Атомарно обновить конфигурацию под одной блокировкой ---
             config.acquire();
@@ -569,7 +568,7 @@ private:
             flog::info("State updated for new list '{0}'.", newSelectedListName);
 
             // --- Шаг 5: Побочные эффекты (тюнинг и т.д.) ---
-            if (!_first && !running.load())
+            if (!_first && currentState.load() == ModuleState::STOPPED)
             {
                 double curr_freq = 0;
                 if (!bookmarks.empty())
@@ -910,15 +909,21 @@ private:
 
                     // }
                     // if (_this->currSource != SOURCE_ARM) {
+                    // 1. Получаем желаемое состояние от клиента.
                     bool arm_run = gui::mainWindow.getbutton_ctrl(currSrvr);
-                    flog::info("CTRL4 arm_run {0}, _this->running {1}, currSrvr {2}", arm_run, _this->running.load(), currSrvr);
-                    if (_this->running.load() != arm_run)
+
+                    // 2. Получаем реальное состояние модуля и определяем, активен ли он.
+                    ModuleState actual_state = _this->currentState.load();
+                    bool is_server_active = (actual_state == ModuleState::RUNNING || actual_state == ModuleState::STARTING);
+
+                    flog::info("CTRL4 arm_run {0}, is_server_active {1}, actual_state {2}, currSrvr {3}", arm_run, is_server_active, (int)actual_state, currSrvr);
+                    if (is_server_active != arm_run)
                     {
                         flog::info("CTRL4....");
                         if (arm_run)
                         { // Нужно запускать
                             flog::info("CTRL4 _this->start");
-                            if (!_this->running.load())
+                            if (actual_state == ModuleState::STOPPED)
                             {
                                 _this->start();
                             }
@@ -2661,17 +2666,19 @@ private:
         _this->currSource = sourcemenu::getCurrSource();
         uint8_t currSrvr = gui::mainWindow.getCurrServer();
         _this->CurrSrvr = currSrvr;
+        ModuleState actual_state = _this->currentState.load();
 
         int _work = 0; // setRecording(recording.load());
         core::modComManager.callInterface("Запис", MAIN_GET_PROCESSING, NULL, &_work);
-        if (_this->running.load() && !gui::mainWindow.isPlaying())
+        if (actual_state == ModuleState::RUNNING && !gui::mainWindow.isPlaying())
         {
             gui::mainWindow.setServerRecordingStop(0);
             gui::mainWindow.setRecording(false);
             _this->stop();
         }
         std::string selVFO = gui::waterfall.selectedVFO;
-        bool _run = _this->running.load();
+        bool _run = (actual_state != ModuleState::STOPPED);
+
         bool _update_ListID = false;
         if (_this->isARM)
         {
@@ -3086,7 +3093,7 @@ private:
                         // ImGui::Text("%s", std::to_string(bm.Signal).c_str());
 
                         ImGui::TableSetColumnIndex(6);
-                        if (_this->isARM || !_this->running.load())
+                        if (_this->isARM || actual_state == ModuleState::STOPPED)
                         {
                             ImGui::TextColored(ImVec4(0, 1, 0, 1), "%s", " ");
                         }
@@ -3455,13 +3462,14 @@ private:
         if (_this->currSource == SOURCE_ARM)
         {
             uint8_t currSrv = gui::mainWindow.getCurrServer();
-            _this->running.store(gui::mainWindow.getbutton_ctrl(currSrv));
+             std::atomic<bool> running_arm = {false};
+            running_arm.store(gui::mainWindow.getbutton_ctrl(currSrv));
             _air_recording = gui::mainWindow.isPlaying();
             bool rec_work = gui::mainWindow.getServerRecording(currSrv);
 
             int _control = gui::mainWindow.getServerStatus(currSrv);
 
-            // flog::info("_this->running {0}, _air_recording {1}, _control {2}, _work {3}, rec_work {4}", _this->running, _air_recording, _control, _work, rec_work);
+            // flog::info("_this->running {0}, _air_recording {1}, _control {2}, _work {3}, rec_work {4}", _this->running_arm.store(), _air_recording, _control, _work, rec_work);
             if (_control != ARM_STATUS_FULL_CONTROL)
             {
                 ImGui::BeginDisabled();
@@ -3471,7 +3479,7 @@ private:
             else
             {
                 // flog::info("_work {0} > 0 || rec_work {1} > 0 || _empty {2} || _ifStartElseBtn {3}", _work, rec_work, _empty, _ifStartElseBtn);
-                if (!_this->running.load())
+                if (!running_arm.load())
                 {
                     if (_work > 0 || rec_work > 0 || _empty || _ifStartElseBtn) //  || _air_recording == 0
                         ImGui::BeginDisabled();
@@ -3724,309 +3732,303 @@ private:
     // -----------
     void start()
     {
-        std::lock_guard<std::mutex> lock(startStopMtx);
-        flog::info("START");
         if (isARM)
             return;
-        if (running.load())
-            return;
-
-        std::string folderPath = "%ROOT%/recordings";
-        // std::string expandedPath = expandString(folderPath + genLogFileName("/observ_"));
-        bookmarks_size = bookmarks.size();
-        if (bookmarks_size == 0)
+        flog::info("[SUPERVISOR] START");
+        // std::lock_guard<std::mutex> lock(startMtx);
+        ModuleState expected = ModuleState::STOPPED;
+        if (currentState.compare_exchange_strong(expected, ModuleState::STARTING))
         {
-            flog::warn("bookmarks is emply!");
-            gui::mainWindow.setbutton_ctrl(gui::mainWindow.getCurrServer(), false);
-            return;
-        }
-        gui::mainWindow.setStopMenuUI(true);
-        core::configManager.acquire();
-        if (core::configManager.conf.contains("menuElements") &&
-            core::configManager.conf["menuElements"].is_array())
-        {
-            for (auto &element : core::configManager.conf["menuElements"])
+            std::string folderPath = "%ROOT%/recordings";
+            // std::string expandedPath = expandString(folderPath + genLogFileName("/observ_"));
+            bookmarks_size = bookmarks.size();
+            if (bookmarks_size == 0)
             {
-                if (element.contains("name") && element["name"] == "Виводи ЦП")
+                flog::warn("bookmarks is emply!");
+                gui::mainWindow.setbutton_ctrl(gui::mainWindow.getCurrServer(), false);
+                return;
+            }
+            gui::mainWindow.setStopMenuUI(true);
+            core::configManager.acquire();
+            if (core::configManager.conf.contains("menuElements") &&
+                core::configManager.conf["menuElements"].is_array())
+            {
+                for (auto &element : core::configManager.conf["menuElements"])
                 {
-                    element["open"] = false;
-                    flog::info("GUI thread: вкладка 'Виводи ЦП' закрыта программно.");
-                    break;
+                    if (element.contains("name") && element["name"] == "Виводи ЦП")
+                    {
+                        element["open"] = false;
+                        flog::info("GUI thread: вкладка 'Виводи ЦП' закрыта программно.");
+                        break;
+                    }
                 }
             }
-        }
 
-        // bool showMenu = core::configManager.conf["showMenu"];
-        // core::configManager.conf["showMenu"] = false;
-        try
-        {
-            source = core::configManager.conf["source"];
-            radioMode = (int)core::configManager.conf["RadioMode"];
-            maxRecDuration = core::configManager.conf["maxRecDuration"];
-        }
-        catch (const std::exception &e)
-        {
-        }
-        core::configManager.release(true);
-
-        clnt_mode = -1; //  || source == "Airspy"
-        if (source == "Азалія-сервер")
-        {
-            clnt_mode = 0;
-        }
-        if (source == "Азалія-клієнт" || source == "Azalea Client")
-        {
-            clnt_mode = 1;
-        }
-        /*
-        if (gui::mainWindow.isPlaying())
-        {
-            flog::info("[supervision4] Stopping player before reconfiguring VFOs...");
-            gui::mainWindow.setPlayState(false);
-            // Может понадобиться короткая пауза, чтобы все потоки гарантированно остановились
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        */
-        DelSelectedList(false); /// DMH
-        /*
-        config.acquire();
-        // config.conf["lists"][selectedListName]["showOnWaterfall"] = false;
-        config.release(true);
-        */
-        // refreshWaterfallBookmarks();
-
-        loadByName(listNames[selectedListId]);
-        AddSelectedList(); /// DMH
-
-        config.acquire();
-        // config.conf["lists"][selectedListName]["showOnWaterfall"] = true;
-        config.conf["selectedList"] = selectedListName;
-        config.release(true);
-
-        CentralFreq = 0;
-        if (clnt_mode == -1)
-        {
-            double min_frec = 0;
-            double max_frec = 0;
-            int freq_count = 0;
-            for (auto &[name, bm] : bookmarks)
+            // bool showMenu = core::configManager.conf["showMenu"];
+            // core::configManager.conf["showMenu"] = false;
+            try
             {
-                if (bm.frequency > max_frec)
-                    max_frec = bm.frequency;
-                if (bm.frequency < min_frec)
-                    min_frec = bm.frequency;
-                if (min_frec == 0)
-                    min_frec = bm.frequency;
-                if (max_frec == 0)
-                    max_frec = bm.frequency;
-                freq_count++;
-                CentralFreq = bm.frequency;
+                source = core::configManager.conf["source"];
+                radioMode = (int)core::configManager.conf["RadioMode"];
+                maxRecDuration = core::configManager.conf["maxRecDuration"];
             }
-            if (freq_count > 1)
+            catch (const std::exception &e)
             {
-                CentralFreq = (double)round(min_frec + (max_frec - min_frec) / 2);
             }
-            // Set middle freq '210400000.000000, min_frec104300000.000000, max_frec107900000.000000!
-            // flog::info("Set middle freq = {0}, min_frec {1}, max_frec {2}! '", CentralFreq, min_frec, max_frec);
-            // gui::freqSelect.frequencyChanged = true;
-
-            calculateScanSegment(min_frec, max_frec, scan_band, sigmentLeft, sigmentRight);
-            gui::mainWindow.setupdateStart_ctrl(gui::mainWindow.getCurrServer(), false);
-            // gui::waterfall.setPrevCenterFrequency(gui::waterfall.getCenterFrequency());
-            if (!gui::waterfall.selectedVFO.empty())
-                tuner::centerTuning(gui::waterfall.selectedVFO, CentralFreq);
-            // int tuningMode = tuner::TUNER_MODE_NORMAL;
-            tuner::tune(gui::mainWindow.gettuningMode(), gui::waterfall.selectedVFO, CentralFreq); // gui::freqSelect.frequency);
-            gui::waterfall.centerFreqMoved = true;
-            gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
-
-            // int tuningMode = gui::mainWindow.gettuningMode();
-            // tuner::tune(tuningMode, gui::waterfall.selectedVFO, CentralFreq);
-
-            AddSelectedList_Short();
-
-            // gui::waterfall.VFOMoveSingleClick = false;
-            core::configManager.acquire();
-            core::configManager.conf["centerTuning"] = false;
-            core::configManager.conf["frequency"] = gui::waterfall.getCenterFrequency();
             core::configManager.release(true);
+
+            clnt_mode = -1; //  || source == "Airspy"
+            if (source == "Азалія-сервер")
+            {
+                clnt_mode = 0;
+            }
+            if (source == "Азалія-клієнт" || source == "Azalea Client")
+            {
+                clnt_mode = 1;
+            }
+            /*
+            if (gui::mainWindow.isPlaying())
+            {
+                flog::info("[supervision4] Stopping player before reconfiguring VFOs...");
+                gui::mainWindow.setPlayState(false);
+                // Может понадобиться короткая пауза, чтобы все потоки гарантированно остановились
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            */
+            // Запускаем тяжелую работу в отдельном потоке, чтобы не блокировать GUI
+            std::thread([this]()
+            {
+                // ... Вся тяжелая логика из старой функции start() ...
+                DelSelectedList(false); /// DMH
+                /*
+                config.acquire();
+                // config.conf["lists"][selectedListName]["showOnWaterfall"] = false;
+                config.release(true);
+                */
+                // refreshWaterfallBookmarks();
+
+                loadByName(listNames[selectedListId]);
+                AddSelectedList(); /// DMH
+
+                config.acquire();
+                // config.conf["lists"][selectedListName]["showOnWaterfall"] = true;
+                config.conf["selectedList"] = selectedListName;
+                config.release(true);
+
+                CentralFreq = 0;
+                if (clnt_mode == -1)
+                {
+                    double min_frec = 0;
+                    double max_frec = 0;
+                    int freq_count = 0;
+                    for (auto &[name, bm] : bookmarks)
+                    {
+                        if (bm.frequency > max_frec)
+                            max_frec = bm.frequency;
+                        if (bm.frequency < min_frec)
+                            min_frec = bm.frequency;
+                        if (min_frec == 0)
+                            min_frec = bm.frequency;
+                        if (max_frec == 0)
+                            max_frec = bm.frequency;
+                        freq_count++;
+                        CentralFreq = bm.frequency;
+                    }
+                    if (freq_count > 1)
+                    {
+                        CentralFreq = (double)round(min_frec + (max_frec - min_frec) / 2);
+                    }
+                    // Set middle freq '210400000.000000, min_frec104300000.000000, max_frec107900000.000000!
+                    // flog::info("Set middle freq = {0}, min_frec {1}, max_frec {2}! '", CentralFreq, min_frec, max_frec);
+                    // gui::freqSelect.frequencyChanged = true;
+
+                    calculateScanSegment(min_frec, max_frec, scan_band, sigmentLeft, sigmentRight);
+                    gui::mainWindow.setupdateStart_ctrl(gui::mainWindow.getCurrServer(), false);
+                    // gui::waterfall.setPrevCenterFrequency(gui::waterfall.getCenterFrequency());
+                    if (!gui::waterfall.selectedVFO.empty())
+                        tuner::centerTuning(gui::waterfall.selectedVFO, CentralFreq);
+                    // int tuningMode = tuner::TUNER_MODE_NORMAL;
+                    tuner::tune(gui::mainWindow.gettuningMode(), gui::waterfall.selectedVFO, CentralFreq); // gui::freqSelect.frequency);
+                    gui::waterfall.centerFreqMoved = true;
+                    gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
+
+                    // int tuningMode = gui::mainWindow.gettuningMode();
+                    // tuner::tune(tuningMode, gui::waterfall.selectedVFO, CentralFreq);
+
+                    AddSelectedList_Short();
+
+                    // gui::waterfall.VFOMoveSingleClick = false;
+                    core::configManager.acquire();
+                    core::configManager.conf["centerTuning"] = false;
+                    core::configManager.conf["frequency"] = gui::waterfall.getCenterFrequency();
+                    core::configManager.release(true);
+                }
+                initial_find_level = true;
+                core::modComManager.callInterface("Запис", MAIN_SET_STATUS_CHANGE, NULL, NULL);
+
+                {
+                    double bw = 0.922;
+                    gui::mainWindow.setViewBandwidthSlider(0.922);
+                    double factor = bw * bw;
+                    if (factor > 0.85)
+                        factor = 0.85;
+                    double wfBw = gui::waterfall.getBandwidth();
+                    double delta = wfBw - 1000.0;
+                    double finalBw = std::min<double>(1000.0 + (factor * delta), wfBw);
+                    // flog::info("bw4 {0}, finalBw {1}, wfBw {2}, delta {3}, factor {4}", bw, finalBw, wfBw, delta, factor);
+                    if (finalBw > VIEWBANDWICH)
+                        finalBw = VIEWBANDWICH;
+                    gui::waterfall.setViewBandwidth(finalBw);
+                    gui::waterfall.setViewOffset(gui::waterfall.vfos["Канал приймання"]->centerOffset); // center vfo on screen
+                }
+
+                // flog::info("[supervision4] Restarting player with new VFO configuration...");
+                // gui::mainWindow.setPlayState(true);
+
+                refreshWaterfallBookmarks(true);
+
+                gui::mainWindow.setbutton_ctrl(gui::mainWindow.getCurrServer(), true);
+                gui::mainWindow.setidOfList_ctrl(gui::mainWindow.getCurrServer(), selectedListId);
+                gui::mainWindow.setUpdateMenuSnd7Ctrl(gui::mainWindow.getCurrServer(), true);
+
+                int _air_recording;
+                core::modComManager.callInterface("Airspy", AIRSPY_IFACE_CMD_GET_RECORDING, NULL, &_air_recording);
+                // flog::info("AIR Recording is '{0}'", _air_recording);
+                // flog::info("start() Control4(), running={0},  CentralFreq {1}", running.load(), CentralFreq);
+                if (_air_recording == 1)
+                {
+                    // running.store(true);
+                    workerThread = std::thread(&SupervisorModeModule::worker, this);
+                }
+                core::modComManager.callInterface("Запис", MAIN_SET_START, NULL, NULL);
+
+                itbook = bookmarks.begin();
+                _recording = false;
+                core::configManager.acquire();
+                try
+                {
+                    radioMode = (int)core::configManager.conf["RadioMode"];
+                }
+                catch (const std::exception &e)
+                {
+                    radioMode = 0;
+                }
+                core::configManager.release();
+
+                if (radioMode == 0)
+                {
+                    status_direction = true;
+                }
+                else
+                {
+                    status_direction = true; // false;
+                }
+
+                for (int i = 0; i < maxCHANNELS; i++)
+                    ch_recording[i] = false;
+
+                
+                // И только теперь переводим модуль в рабочее состояние
+                currentState.store(ModuleState::RUNNING);
+                gui::mainWindow.setStopMenuUI(false);
+                flog::info("[SUPERVISOR] Module is now RUNNING.");                
+            }).detach(); // Отсоединяем, так как GUI не должен ждать завершения
+
         }
-        initial_find_level = true;
-        core::modComManager.callInterface("Запис", MAIN_SET_STATUS_CHANGE, NULL, NULL);
-
-        {
-            double bw = 0.922;
-            gui::mainWindow.setViewBandwidthSlider(0.922);
-            double factor = bw * bw;
-            if (factor > 0.85)
-                factor = 0.85;
-            double wfBw = gui::waterfall.getBandwidth();
-            double delta = wfBw - 1000.0;
-            double finalBw = std::min<double>(1000.0 + (factor * delta), wfBw);
-            // flog::info("bw4 {0}, finalBw {1}, wfBw {2}, delta {3}, factor {4}", bw, finalBw, wfBw, delta, factor);
-            if (finalBw > VIEWBANDWICH)
-                finalBw = VIEWBANDWICH;
-            gui::waterfall.setViewBandwidth(finalBw);
-            gui::waterfall.setViewOffset(gui::waterfall.vfos["Канал приймання"]->centerOffset); // center vfo on screen
-        }
-
-        // flog::info("[supervision4] Restarting player with new VFO configuration...");
-        // gui::mainWindow.setPlayState(true);
-
-        refreshWaterfallBookmarks(true);
-
-        gui::mainWindow.setbutton_ctrl(gui::mainWindow.getCurrServer(), true);
-        gui::mainWindow.setidOfList_ctrl(gui::mainWindow.getCurrServer(), selectedListId);
-        gui::mainWindow.setUpdateMenuSnd7Ctrl(gui::mainWindow.getCurrServer(), true);
-
-        int _air_recording;
-        core::modComManager.callInterface("Airspy", AIRSPY_IFACE_CMD_GET_RECORDING, NULL, &_air_recording);
-        // flog::info("AIR Recording is '{0}'", _air_recording);
-        flog::info("start() Control4(), running={0},  CentralFreq {1}", running.load(), CentralFreq);
-
-        if (_air_recording == 1)
-        {
-            running.store(true);
-            workerThread = std::thread(&SupervisorModeModule::worker, this);
-        }
-        core::modComManager.callInterface("Запис", MAIN_SET_START, NULL, NULL);
-
-        itbook = bookmarks.begin();
-        _recording = false;
-        core::configManager.acquire();
-        try
-        {
-            radioMode = (int)core::configManager.conf["RadioMode"];
-        }
-        catch (const std::exception &e)
-        {
-            radioMode = 0;
-        }
-        core::configManager.release();
-
-        if (radioMode == 0)
-        {
-            status_direction = true;
-        }
-        else
-        {
-            status_direction = true; // false;
-        }
-
-        for (int i = 0; i < maxCHANNELS; i++)
-            ch_recording[i] = false;
-        /*
-        if (showMenu)
-        {
-            core::configManager.acquire();
-            core::configManager.conf["showMenu"] = showMenu;
-            core::configManager.release(true); // сохраняем состояние панели меню
-        }
-        */
-
-        gui::mainWindow.setStopMenuUI(false);
     }
 
     void stop()
     {
         if (isARM)
             return;
-        flog::info("[SUPERVISOR] Stop sequence initiated... running={0}", running.load());
-
-        std::unique_lock<std::mutex> lock(startStopMtx, std::try_to_lock);
-        if (!lock.owns_lock())
+        flog::info("[SUPERVISOR] STOP");
+        // Атомарная операция: пытаемся перевести состояние из RUNNING в STOPPING
+        ModuleState expected = ModuleState::RUNNING;
+        if (currentState.compare_exchange_strong(expected, ModuleState::STOPPING))
         {
-            flog::warn("STOP function is already in progress. Ignoring this call.");
-            return;
-        }
+            // Если получилось, мы инициировали остановку.
+            flog::info("[SUPERVISOR] Stop sequence requested...");
 
-        flog::info("1 void stop(), running={0}", running.load());
-        if (!running.load())
-        {
-            flog::warn("Stop called but already stopped. Exiting.");
-            return;
-        }
-        /*
-        if (is_stopping.exchange(true))
-        {
-            flog::warn("[SUPERVISOR] Stop sequence is already in progress. Ignoring duplicate call.");
-            return;
-        }
-        */
+            // std::unique_lock<std::mutex> lock(stopMtx, std::try_to_lock);
+            // if (!running.load())
+            // {
+            //    flog::warn("Stop called but already stopped. Exiting.");
+            //    return;
+            // }
 
-        // 1. Посылаем сигнал нашему собственному worker'у, чтобы он перестал сканировать
-        running.store(false);
+            // 1. Посылаем сигнал нашему собственному worker'у, чтобы он перестал сканировать
+            // running.store(false);
+            std::thread([this]()
+                        {
+                // --- Этап 3: Ждем завершения основного рабочего потока ---
+                flog::info("[Cleanup Thread] Joining workerThread...");
+                if (this->workerThread.joinable())
+                    this->workerThread.join();
+                flog::info("[Cleanup Thread] workerThread joined.");
 
-        std::thread([this]()
-                    {
-
-        // --- Этап 3: Ждем завершения основного рабочего потока ---
-        flog::info("[Cleanup Thread] Joining workerThread...");
-        if (this->workerThread.joinable())
-        {
-            this->workerThread.join();
-        }
-        flog::info("[Cleanup Thread] workerThread joined.");
-
-        // --- Этап 1: Рассылаем команду STOP всем рекордерам ---
-        flog::info("[Cleanup Thread] Sending STOP command to recorders...");
-        if (_recording)
-        {
-            int i = 0;
-            for (auto &[name, bm] : bookmarks)
-            {
-                if (ch_recording[i])
+                // --- Этап 1: Рассылаем команду STOP всем рекордерам ---
+                flog::info("[Cleanup Thread] Sending STOP command to recorders...");
+                if (_recording)
                 {
-                    std::string rec_name = "Запис " + name;
-                    core::modComManager.callInterface(rec_name.c_str(), RECORDER_IFACE_CMD_STOP, NULL, NULL);
-                }
-                ch_recording[i] = false;
-                i++;
-            }
-        }
-
-        // --- Этап 2:  БЛОК ОЧИСТКИ (выполняется ТОЛЬКО ПОСЛЕ выхода из цикла)
-        flog::info("[Cleanup Thread] Waiting for all recorders to confirm they have stopped...");
-        bool all_stopped;
-        int retries = 50; // Ждем максимум 5 секунд
-        do
-        {
-            all_stopped = true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            for (auto &[name, bm] : bookmarks)
-            {
-                std::string rec_name = "Запис " + name;
-                if (core::moduleManager.instanceExist(rec_name))
-                {
-                    // RECORDER_IFACE_GET_RECORD возвращает 'recording', который становится false
-                    // в самом конце _internal_stop.
-                    bool is_rec_running = true;
-                    core::modComManager.callInterface(rec_name.c_str(), RECORDER_IFACE_GET_RECORD, NULL, &is_rec_running);
-                    if (is_rec_running)
+                    int i = 0;
+                    for (auto &[name, bm] : bookmarks)
                     {
-                        all_stopped = false;
-                        break;
+                        if (ch_recording[i])
+                        {
+                            std::string rec_name = "Запис " + name;
+                            core::modComManager.callInterface(rec_name.c_str(), RECORDER_IFACE_CMD_STOP, NULL, NULL);
+                        }
+                        ch_recording[i] = false;
+                        i++;
                     }
                 }
-            }
-        } while (!all_stopped && --retries > 0);
 
-        // --- Этап 4: Удаляем инстансы ---
-        flog::info("[Cleanup Thread] Deleting instances via DelSelectedList...");
-        this->DelSelectedList();
-        // --- Этап 5: Финальная очистка состояния ---
-        this->_recording = false;
-        core::modComManager.callInterface("Запис", MAIN_SET_STOP, NULL, NULL);
-        gui::mainWindow.setbutton_ctrl(this->CurrSrvr, false);
-        gui::mainWindow.setUpdateMenuSnd7Ctrl(this->CurrSrvr, true);
-        flog::info("[Cleanup Thread] Cleanup sequence finished."); })
-            .detach();
+                // --- Этап 2:  БЛОК ОЧИСТКИ (выполняется ТОЛЬКО ПОСЛЕ выхода из цикла)
+                flog::info("[Cleanup Thread] Waiting for all recorders to confirm they have stopped...");
+                bool all_stopped;
+                int retries = 50; // Ждем максимум 5 секунд
+                do
+                {
+                    all_stopped = true;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // 4. Сбрасываем флаг, когда все действительно закончено.
-        // is_stopping.store(false);
-        // ВСЁ. Функция stop() завершается. Она не вызывает join() и DelSelectedList.
-        // GUI не виснет.
+                    for (auto &[name, bm] : bookmarks)
+                    {
+                        std::string rec_name = "Запис " + name;
+                        if (core::moduleManager.instanceExist(rec_name))
+                        {
+                            // RECORDER_IFACE_GET_RECORD возвращает 'recording', который становится false
+                            // в самом конце _internal_stop.
+                            bool is_rec_running = true;
+                            core::modComManager.callInterface(rec_name.c_str(), RECORDER_IFACE_GET_RECORD, NULL, &is_rec_running);
+                            if (is_rec_running)
+                            {
+                                all_stopped = false;
+                                break;
+                            }
+                        }
+                    }
+                } while (!all_stopped && --retries > 0);
+
+                // --- Этап 4: Удаляем инстансы ---
+                flog::info("[Cleanup Thread] Deleting instances via DelSelectedList...");
+                this->DelSelectedList();
+                // --- Этап 5: Финальная очистка состояния ---
+                this->_recording = false;
+                core::modComManager.callInterface("Запис", MAIN_SET_STOP, NULL, NULL);
+                gui::mainWindow.setbutton_ctrl(this->CurrSrvr, false);
+                gui::mainWindow.setUpdateMenuSnd7Ctrl(this->CurrSrvr, true);
+                flog::info("[Cleanup Thread] Cleanup sequence finished.");
+                currentState.store(ModuleState::STOPPED); })
+                .detach();
+        }
+        else
+        {
+            flog::warn("[SUPERVISOR] Stop called but module is not in RUNNING state.");
+        } // 4. Сбрасываем флаг, когда все действительно закончено.
+          // is_stopping.store(false);
+          // ВСЁ. Функция stop() завершается. Она не вызывает join() и DelSelectedList.
+          // GUI не виснет.
     }
 
     // Модифицированная функция для получения максимального уровня и оценки шума
@@ -4263,8 +4265,7 @@ private:
         // ===================================
         //            ОСНОВНОЙ ЦИКЛ РАБОТЫ
         // ===================================
-        while (running.load())
-        {
+        while (currentState.load() == ModuleState::RUNNING) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             {
                 std::lock_guard<std::mutex> lck(scan3Mtx);
@@ -4382,8 +4383,8 @@ private:
                     {
                         // flog::info(" >> current={0}, _Receiving==true, maxLevel = {1} > curr_level {2}, vfoWidth {3} ", current, maxLevel, curr_level, vfoWidth);
                         // flog::info(" >> wfCenter={0}, wfWidth = {1}, wfStart {2}, wfEnd {3}, getViewOffset {4}, ViewBandwidth {5}, CFrequency {6}!", wfCenter, wfWidth, wfStart, wfEnd, gui::waterfall.getViewOffset(), gui::waterfall.getViewBandwidth(), gui::waterfall.getCenterFrequency());
-
-                        if (ch_recording[ch_num] == false && running.load() == true)
+                         ModuleState actual_state = currentState.load();
+                        if (ch_recording[ch_num] == false && actual_state == ModuleState::RUNNING)
                         {
                             flog::info("TRACE. START Receiving! curr_level = {0}, maxLevel = {1}, current = {2} !", curr_level, maxLevel, current);
                             if (gui::waterfall.selectedVFO != "")
@@ -5333,7 +5334,7 @@ private:
 
     int bookmarkDisplayMode = 0;
 
-    std::atomic<bool> running = {false};
+   
     std::thread workerThread;
     std::mutex scan3Mtx;
 
@@ -5437,12 +5438,20 @@ private:
     int MAX_WAIT_MS = (maxRecShortDur_sec) * 1000 + 200;
     int ADD_WAIT_MS[MAX_SERVERS] = {0, 0, 0, 0, 0, 0, 0, 0};
     std::array<std::atomic<State>, MAX_SERVERS> channel_states;
-    std::mutex startStopMtx;
-    std::mutex changeListsMtx;
+    std::mutex startMtx;
+    std::mutex stopMtx;
     std::atomic<bool> infoThreadStarted = false;
     std::atomic<bool> bookmarksUpdated{false};
     std::atomic<bool> listUpdater{false};
     std::mutex classMtx;
+    enum class ModuleState
+    {
+        STOPPED,
+        RUNNING,
+        STARTING, // Промежуточное состояние для предотвращения двойного запуска
+        STOPPING  // Промежуточное состояние для предотвращения гонок
+    };
+    std::atomic<ModuleState> currentState{ModuleState::STOPPED};
 };
 
 MOD_EXPORT void _INIT_()

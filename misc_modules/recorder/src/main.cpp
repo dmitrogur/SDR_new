@@ -45,6 +45,10 @@
 #include <dsp/taps/tap.h>
 #include <dsp/types.h>
 
+#include <atomic>
+#include <algorithm>
+#include <cstddef>
+
 namespace fs = std::filesystem;
 // using namespace std::filesystem;
 
@@ -198,38 +202,152 @@ inline void closeShutdownPipe(int fds[2])
 class LockFreeRingBuffer
 {
 public:
-    LockFreeRingBuffer(size_t size) : _size(size), _head(0), _tail(0)
+    // Конструктор: выделяем на 1 слот больше, чтобы различать состояния "полный" и "пустой"
+    explicit LockFreeRingBuffer(size_t size)
+        : _capacity(std::max<size_t>(1, size) + 1), _head(0), _tail(0)
     {
-        _buffer = new std::atomic<float>[size];
-        for (size_t i = 0; i < size; ++i)
+        _buffer = new std::atomic<float>[_capacity];
+        for (size_t i = 0; i < _capacity; ++i)
+            _buffer[i].store(0.0f, std::memory_order_relaxed);
+    }
+
+    ~LockFreeRingBuffer() { delete[] _buffer; }
+
+    LockFreeRingBuffer(const LockFreeRingBuffer &) = delete;
+    LockFreeRingBuffer &operator=(const LockFreeRingBuffer &) = delete;
+
+    // Добавляет элемент. Возвращает false, если буфер полон.
+    bool push(float value)
+    {
+        size_t tail = _tail.load(std::memory_order_relaxed);
+        size_t next_tail = (tail + 1) % _capacity;
+
+        // Если следующий хвост совпадает с головой — места нет
+        if (next_tail == _head.load(std::memory_order_acquire))
+            return false;
+
+        _buffer[tail].store(value, std::memory_order_relaxed);
+        _tail.store(next_tail, std::memory_order_release);
+        return true;
+    }
+
+    // Извлекает элемент. Возвращает false, если буфер пуст.
+    bool pop(float &value)
+    {
+        size_t head = _head.load(std::memory_order_relaxed);
+
+        // Если голова совпадает с хвостом — данных нет
+        if (head == _tail.load(std::memory_order_acquire))
+            return false;
+
+        value = _buffer[head].load(std::memory_order_relaxed);
+        size_t next_head = (head + 1) % _capacity;
+        _head.store(next_head, std::memory_order_release);
+        return true;
+    }
+
+    // --- Метод для исправления ошибки 'has no member named clear' ---
+    void clear()
+    {
+        // Сброс индексов.
+        // ВНИМАНИЕ: Это безопасно вызывать только тогда, когда запись и чтение остановлены
+        // (обычно так и происходит внутри метода stop()).
+        _head.store(0, std::memory_order_relaxed);
+        _tail.store(0, std::memory_order_relaxed);
+    }
+
+    // --- Метод для исправления ошибки 'has no member named capacity' ---
+    size_t capacity() const
+    {
+        // Возвращаем тот размер, который запрашивал пользователь (полезный объем).
+        // Реальный буфер на 1 больше.
+        return _capacity - 1;
+    }
+
+    // Текущее количество элементов (для отладки или UI)
+    size_t size() const
+    {
+        size_t head = _head.load(std::memory_order_relaxed);
+        size_t tail = _tail.load(std::memory_order_relaxed);
+        if (tail >= head)
+            return tail - head;
+        return _capacity + tail - head;
+    }
+
+private:
+    const size_t _capacity;
+    std::atomic<float> *_buffer;
+    std::atomic<size_t> _head;
+    std::atomic<size_t> _tail;
+};
+/*
+class LockFreeRingBuffer_OLD
+{
+public:
+    // LockFreeRingBuffer(size_t size) : _size(size), _head(0), _tail(0)
+    // size задаёт максимальное число сэмплов, удерживаемых в буфере.
+    explicit LockFreeRingBuffer(size_t size) : _size(std::max<size_t>(1, size)), _head(0), _tail(0), _count(0)
+    {
+        _buffer = new std::atomic<float>[_size];
+        for (size_t i = 0; i < _size; ++i)
             _buffer[i].store(0.0f, std::memory_order_relaxed);
     }
     ~LockFreeRingBuffer() { delete[] _buffer; }
     LockFreeRingBuffer(const LockFreeRingBuffer &) = delete;
     LockFreeRingBuffer &operator=(const LockFreeRingBuffer &) = delete;
 
+    // Добавляет один сэмпл в буфер. При заполнении вытесняет самый старый,
+    // сохраняя размер окна постоянным.
     void push(float value)
     {
-        const auto t = _tail.load(std::memory_order_relaxed);
-        _buffer[t].store(value, std::memory_order_relaxed);
-        size_t next = t + 1;
-        if (next == _size)
-            next = 0;
-        _tail.store(next, std::memory_order_release);
-        // Перезапись старых данных допустима — нам нужен последний интервал
+        size_t tail = _tail.load(std::memory_order_relaxed);
+        _buffer[tail].store(value, std::memory_order_relaxed);
+
+        tail++;
+        if (tail == _size)
+            tail = 0;
+        _tail.store(tail, std::memory_order_release);
+
+        size_t currentCount = _count.load(std::memory_order_relaxed);
+        if (currentCount == _size)
+        {
+            size_t head = _head.load(std::memory_order_relaxed);
+            head++;
+            if (head == _size)
+                head = 0;
+            _head.store(head, std::memory_order_release);
+        }
+        else
+        {
+            _count.fetch_add(1, std::memory_order_release);
+        }
     }
+    // Считывает один сэмпл. Возвращает false, если буфер пуст.
     bool pop(float &value)
     {
-        const auto h = _head.load(std::memory_order_relaxed);
-        if (h == _tail.load(std::memory_order_acquire))
+        if (_count.load(std::memory_order_acquire) == 0)
             return false;
-        value = _buffer[h].load(std::memory_order_relaxed);
-        size_t next = h + 1;
-        if (next == _size)
-            next = 0;
-        _head.store(next, std::memory_order_release);
+
+        size_t head = _head.load(std::memory_order_relaxed);
+        value = _buffer[head].load(std::memory_order_relaxed);
+        head++;
+        if (head == _size)
+            head = 0;
+        _head.store(head, std::memory_order_release);
+        _count.fetch_sub(1, std::memory_order_release);
         return true;
     }
+
+    void clear()
+    {
+        _head.store(0, std::memory_order_relaxed);
+        _tail.store(0, std::memory_order_relaxed);
+        _count.store(0, std::memory_order_relaxed);
+    }
+
+    // Текущее количество доступных сэмплов.
+    size_t size() const { return _count.load(std::memory_order_acquire); }
+    // Максимальное количество сэмплов, удерживаемых буфером.
     size_t capacity() const { return _size; }
 
 private:
@@ -237,8 +355,9 @@ private:
     std::atomic<float> *_buffer;
     std::atomic<size_t> _head;
     std::atomic<size_t> _tail;
+    std::atomic<size_t> _count;
 };
-
+*/
 // =============================================================
 // ГЛОБАЛЬНЫЕ ОБЪЕКТЫ И ПРЕДВАРИТЕЛЬНЫЕ ОБЪЯВЛЕНИЯ
 // =============================================================
@@ -591,7 +710,7 @@ public:
         }
         else
         {
-            preRecordTimeMs = 500; // Значение по умолчанию
+            preRecordTimeMs = 1000; // Значение по умолчанию
             config.conf[name]["preRecordTime"] = preRecordTimeMs;
             update_conf = true;
         }
@@ -618,12 +737,10 @@ public:
         basebandSink.init(NULL, complexHandler, this);
         stereoSink.init(&stereoStream, stereoHandler, this);
         monoSink.init(&s2m.out, monoHandler, this);
-        if (isPreRecordChannel(name))
+        isPreRecord = isPreRecordChannel(name);
+        if (isPreRecord)
         {
             ioSampleRate.store(8000, std::memory_order_relaxed); // базовая Fs для C1..C8 — 8000
-
-
-
         }
         initPrebuffer();
         // флаг для управления meter на время записи
@@ -642,8 +759,6 @@ public:
         }
         processing.store(0);
         gui::menu.registerEntry(name, menuHandler, this);
-
-
 
         flog::info("finish constructor RecorderModule {0}", name);
 
@@ -833,7 +948,7 @@ public:
             audioStreams.define(name, name, name);
         }
         // Bind stream register/unregister handlers
-        flog::info("starting 1 postInit RecorderModule");
+        // flog::info("starting 1 postInit RecorderModule");
         onStreamRegisteredHandler.ctx = this;
         onStreamRegisteredHandler.handler = streamRegisteredHandler;
         sigpath::sinkManager.onStreamRegistered.bindHandler(&onStreamRegisteredHandler);
@@ -887,6 +1002,7 @@ public:
         {
             monoPreBuffer.reset();
             preBufferSizeInSamples = 0;
+            isPreRecord = false;
             return;
         }
         flog::info("[REC DEBUG] {}: preRecordTimeMs={} ms (до min(2000))", name, preRecordTimeMs);
@@ -1381,26 +1497,21 @@ public:
                     {
                         flog::info("Pre-record is active for {0}. Seamless start (no handler switch).", name);
 
-
-
-
                         // Флаг: monoHandler выполнит одноразовый слив предбуфера
                         preBufferDrained.store(false, std::memory_order_release);
-
-
-
                     }
 
                     // Если уже идёт предзаписьный путь (C1..C8), цепочка s2m/monoSink уже запущена — НЕ стартуем повторно
                     if (!(isPreRecordChannel(name) && audioPathRunning))
                     {
+                        flog::info("monoSink.start()");
                         s2m.start();
                         monoSink.start();
+                        audioPathRunning = true;
                     }
-
-
                 }
-                if (!isSplitterBound) {
+                if (!isSplitterBound)
+                {
                     splitter.bindStream(&stereoStream);
                     isSplitterBound = true;
                 }
@@ -1511,6 +1622,7 @@ public:
         if (!recording.load())
         {
             flog::warn("[RECORDER STOP] Already not recording '{0}'.", name);
+            isStopping.store(false);
             return;
         }
 
@@ -1519,6 +1631,17 @@ public:
         pleaseStopAnalysis.store(true);
         restart_pending.store(false);
         wakeShutdownPipe(shutdownPipeFd[1]);
+        /*
+        std::thread to_join;
+        {
+            flog::info("[RECORDER] std::lock_guard<std::mutex>, to_join = std::move(analysisThread)");
+            std::lock_guard<std::mutex> lk(analysisThreadMtx);
+            if (analysisThread.joinable())
+                to_join = std::move(analysisThread);
+        }
+        if (to_join.joinable())
+            to_join.join();
+        */
 
         std::thread to_join;
         {
@@ -1526,24 +1649,74 @@ public:
             if (analysisThread.joinable())
                 to_join = std::move(analysisThread);
         }
-        if (to_join.joinable())
-            to_join.join();
 
+        // 2. === НАЧАЛО КЛЮЧЕВОГО ИЗМЕНЕНИЯ ===
+        if (to_join.joinable())
+        {
+            // Используем future для ожидания с таймаутом
+            auto future = std::async(std::launch::async, &std::thread::join, &to_join);
+            if (future.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout)
+            {
+                // ПОТОК НЕ ОТВЕТИЛ ВОВРЕМЯ!
+                flog::info("FATAL: analysisThread for '{0}' did not stop within 500ms. "
+                           "Aborting cleanup to prevent memory corruption. "
+                           "The module is now in an unstable state and requires a restart.",
+                           name);
+
+                // МЫ НЕ ДЕЛАЕМ detach()! ЭТО ОПАСНО!
+                // Вместо этого мы ПРЕРЫВАЕМ ФУНКЦИЮ STOP(), оставляя поток joinable.
+                // Это предотвратит use-after-free.
+
+                // Чтобы можно было попробовать остановить еще раз, сбрасываем флаг isStopping.
+                isStopping.store(false);
+                return; // <-- САМОЕ ВАЖНОЕ: ВЫХОДИМ, НЕ ПРОДОЛЖАЯ ОЧИСТКУ
+            }
+            flog::info("[RECORDER] analysisThread joined successfully.");
+        }
         if (recording.load())
         {
-            flog::info("[RECORDER] stop(): Stopping streams and closing writer..., finish {0}, audioPathRunning {1}" , finish, audioPathRunning);
+            flog::info("[RECORDER] stop(): Stopping streams and closing writer..., finish {0}, audioPathRunning {1}", finish, audioPathRunning);
 
             writer.close();
 
+            if (isPreRecord)
+                if (monoPreBuffer && preBufferSizeInSamples > 0)
+                {
+                    monoPreBuffer->clear();
+                    preBufferDrained.store(false, std::memory_order_release);
+                    isPreRecord = true;
+                    flog::info("[RECORDER] Pre-record buffer re-armed for '{0}' ({1} samples).", name, preBufferSizeInSamples);
+                }
             if (recMode == RECORDER_MODE_AUDIO)
             {
-                if ((!isPreRecordChannel(name) || finish) && audioPathRunning)
+                // if ((!isPreRecordChannel(name) || finish) && audioPathRunning)
+                // if ((!isPreRecordChannel(name) || finish) && audioPathRunning)
+                if (finish && audioPathRunning)
                 {
                     flog::info("[RECORDER] stop(): monoSink.stop() ...");
                     monoSink.stop();
+                    audioPathRunning = false;
                 }
             }
-        
+            /*
+            if (recMode == RECORDER_MODE_AUDIO)
+            {
+                bool keepAlive = false;
+
+                if (isPreRecordChannel(name))
+                    keepAlive = true;
+
+                if (SignalInitCtrl == 1 && !finish)
+                    keepAlive = true;
+
+                if ((!keepAlive || finish) && audioPathRunning)
+                {
+                    flog::info("[RECORDER] stop(): monoSink.stop() .");
+                    monoSink.stop();
+                    audioPathRunning = false;
+                }
+            }
+            */
             if (!rename_and_save)
             {
                 try
@@ -1588,15 +1761,33 @@ public:
                 }
             }
 
-            if (status_direction && this_record)
+        if (status_direction && this_record)
+        {
+            if (finish)
             {
-                curlPOST_end_new();
+                // Полное завершение сессии – можно гасить стриминг на Lotus
+                curlGET_end_new();
                 status_direction = false;
             }
+            else
+            {
+                // Обычный stop записи – стриминг Lotus НЕ трогаем
+                flog::info("[RECORDER] stop(): finish == false -> keep streaming (no lotus_stop_pelengation).");
+            }
+        }
         }
         else
         {
             flog::info("[RECORDER] stop(): Already not recording. Skipping DSP/file close.");
+        }
+
+        bool restorePreRecord = !finish && isPreRecord && monoPreBuffer;
+        if (restorePreRecord)
+        {
+            isPreRecord = false;
+            monoPreBuffer->clear();
+            preBufferDrained.store(false, std::memory_order_release);
+            isPreRecord = true;
         }
 
         recording.store(false);
@@ -1606,7 +1797,10 @@ public:
         analysisResultSignal.store(ANALYSIS_NONE);
         flog::info("[RECORDER] LEAVING stop() successfully.");
         isStopping.store(false);
+        flog::info("[RECORDER] LEAVING 2 stop() successfully.");
         gui::mainWindow.setRecording(recording.load());
+        flog::info("[RECORDER] LEAVING 3 stop() successfully.");
+
         flog::info("[RECORDER] Stop requested for '{0}'. Flag cleared.", name);
     }
 
@@ -1874,12 +2068,10 @@ private:
     static void menuHandler(void *ctx)
     {
         RecorderModule *_this = (RecorderModule *)ctx;
-        /*
         if (gui::mainWindow.getStopMenuUI())
         {
             return;
         }
-        */
 
         float menuWidth = ImGui::GetContentRegionAvail().x;
         // Recording mode
@@ -2489,7 +2681,7 @@ private:
 
     void startAudioPath()
     {
-        flog::warn("startAudioPath");
+        // flog::warn("startAudioPath");
 
         volume.start();
         splitter.start();
@@ -2500,17 +2692,17 @@ private:
             flog::warn("isPreRecordChannel({0})", name);
             s2m.start();
             monoSink.start();
+            audioPathRunning = true;
 
             // Биндим сплиттер и фиксируем флаг, чтобы stop()/stopAudioPath() знали, что развязывать
             splitter.bindStream(&stereoStream);
             isSplitterBound = true;
-
-            audioPathRunning = true;
         }
     }
 
     void stopAudioPath()
     {
+        flog::warn("stopAudioPath");
         // Если до этого биндили — снимем привязку аккуратно
         if (isSplitterBound)
         {
@@ -2525,8 +2717,8 @@ private:
         // На всякий случай останавливаем конвертер/синк предзаписи
         s2m.stop();
         monoSink.stop();
-
         audioPathRunning = false;
+        // startedLocalAudioPath = false;
     }
 
     static void streamRegisteredHandler(std::string name, void *ctx)
@@ -2769,7 +2961,7 @@ private:
 
             flog::info("[PROCESSOR] Starting POST request for {0}", this->currWavFile);
             if (this->this_record)
-                this->curlPOST_begin_new();
+                this->curlGET_begin_new();
         }
     }
 
@@ -2804,17 +2996,17 @@ private:
             flog::info("[INITIATOR] Record in DB for new file name '{0}' created successfully!", this->currWavFile);
             this->folderSelect.setPath(this->wavPath);
             this->curr_expandedPath = this->expandString(this->folderSelect.path + "/" + this->currWavFile);
-
-            flog::info("[INITIATOR] Starting POST request for {0}", this->currWavFile);
-            if (this->this_record)
-                this->curlPOST_begin_new();
         }
+        flog::info("[INITIATOR] Starting POST request for {0}", this->currWavFile);
+        if (this->this_record)
+            this->curlGET_begin_new();
     }
 
     void updatePreBufferSize()
     {
-        if (isPreRecordChannel(name))
+        if (!isPreRecordChannel(name))
         {
+            preBufferSizeInSamples = 0;
             return;
         }
         // Предзапись только в аудио-режиме
@@ -2856,7 +3048,7 @@ private:
         RecorderModule *_this = (RecorderModule *)ctx;
         if (!data || count <= 0)
             return;
-        if(_this->isStopping.load() || _this->_restart.load())    
+        if (_this->isStopping.load() || _this->_restart.load())
             return;
 
         if (_this->isPreRecord && _this->isPreRecordChannel(_this->name) && _this->monoPreBuffer && !_this->writer.isOpen())
@@ -2877,33 +3069,48 @@ private:
 
                 // 1) слить предбуфер в tempBuf
                 std::vector<float> tempBuf;
-                tempBuf.reserve(_this->preBufferSizeInSamples > 0 ? _this->preBufferSizeInSamples : 96000);
+                // tempBuf.reserve(_this->preBufferSizeInSamples > 0 ? _this->preBufferSizeInSamples : 96000);
+                size_t storedSamples = _this->monoPreBuffer ? _this->monoPreBuffer->size() : 0;
+                size_t reserveCount = storedSamples ? storedSamples : _this->preBufferSizeInSamples;
+                if (reserveCount == 0)
+                    reserveCount = 96000; // запас по умолчанию
+                tempBuf.reserve(reserveCount);
                 float sample;
                 while (_this->monoPreBuffer && _this->monoPreBuffer->pop(sample))
-
                     tempBuf.push_back(sample);
 
-
+                // Разрешать ли запись в файлы (основной/AKF)
+                // При SignalInitCtrl == 1 (ТЛФ) файлы НЕ заполняем, но буферы и поток живут.
+                bool allowFileWrite = (_this->SignalInitCtrl != 1);
                 // 2) запись предзаписи
                 if (!tempBuf.empty())
                 {
-                    if (_this->writer.isOpen())
+                    if (allowFileWrite && _this->writer.isOpen())
                         _this->writer.write(tempBuf.data(), (int)tempBuf.size());
 
-                    if (_this->akfState.load() == AkfState::RECORDING && _this->writer_akf && _this->writer_akf->isOpen())
+                    if (allowFileWrite &&
+                        _this->akfState.load() == AkfState::RECORDING &&
+                        _this->writer_akf && _this->writer_akf->isOpen())
+                    {
                         _this->writer_akf->write(tempBuf.data(), (int)tempBuf.size());
+                    }
 
-                    flog::info("PreRecord drained: {} samples.", (int)tempBuf.size());
+                    flog::info("PreRecord drained: {} samples (buffer capacity {}).", (int)tempBuf.size(),
+                               (int)_this->preBufferSizeInSamples);
                 }
 
                 // 3) запись сохраненного текущего блока (spill)
                 if (!spill.empty())
                 {
-                    if (_this->writer.isOpen())
+                    if (allowFileWrite && _this->writer.isOpen())
                         _this->writer.write(spill.data(), (int)spill.size());
 
-                        if (_this->akfState.load() == AkfState::RECORDING && _this->writer_akf && _this->writer_akf->isOpen())
+                    if (allowFileWrite &&
+                        _this->akfState.load() == AkfState::RECORDING &&
+                        _this->writer_akf && _this->writer_akf->isOpen())
+                    {
                         _this->writer_akf->write(spill.data(), (int)spill.size());
+                    }
                 }
 
                 // После первого слива — предзапись больше не нужна
@@ -3093,6 +3300,16 @@ private:
         {
             int *_out = (int *)out;
             *_out = _this->recMode;
+        }
+        else if (code == RECORDER_IFACE_CMD_SET_SIGNAL)
+        {
+            int *_in = (int *)in;
+            _this->SignalInitCtrl = *_in;
+            if (_this->SignalInitCtrl == 1)
+            { // MKF
+                // _this->isPreRecord = false;
+                flog::info("RECORDER_IFACE_CMD_SET_SIGNAL. Pre-registration is disabled. Signal =  {0} (MKF)", _this->SignalInitCtrl);
+            }
         }
         else if (code == RECORDER_IFACE_CMD_SET_FREQ)
         {
@@ -3325,112 +3542,147 @@ private:
             return false;
         }
     }
-    bool curlPOST_begin_new()
+    bool curlGET_begin_new()
     {
-        std::string url = "https://127.0.0.1:48601/";
+        std::string base_url = "https://127.0.0.1:48601/";
+        if (radioMode == 0)
+            base_url = "https://192.168.88.11:48601/";
+        else
+            base_url = "https://192.168.30.100:48601/";
+
         double band = sigpath::vfoManager.getBandwidth(gui::waterfall.selectedVFO);
-        double freq = gui::waterfall.getCenterFrequency();
-        if (gui::waterfall.vfos.find(name) != gui::waterfall.vfos.end())
+        double _freq = gui::waterfall.getCenterFrequency();
+        double _offset = 0;
+        int _tuningMode = gui::mainWindow.gettuningMode();
+        if (_tuningMode != tuner::TUNER_MODE_CENTER)
         {
-            freq += gui::waterfall.vfos[name]->generalOffset;
+            std::string nameVFO = "Канал приймання";
+            if (gui::waterfall.vfos.find(nameVFO) != gui::waterfall.vfos.end())
+            {
+                _offset = gui::waterfall.vfos[nameVFO]->generalOffset;
+            }
         }
+        double freq = _freq + _offset;
 
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(0);
+        // Формируем строку параметров
         oss << "?type=lotus_start_pelengation"
-            << "&user=user1"
-            << "&token=3K8jj0iWGMYMTWCzjfl8"
+            << "&user=rpm"
+            << "&token=Xi7uHGtXzHE63UWUAiHN"
             << "&ln=en"
             << "&freq=" << freq
             << "&band=" << band
             << "&timeout=-1"
             << "&npost=1"
             << "&;";
-        std::string payload = oss.str();
 
-        std::thread([url, payload]()
+        std::string params = oss.str();
+        // Для GET запроса параметры приклеиваем к адресу
+        std::string full_url = base_url + params;
+
+        std::thread([full_url]()
                     {
-        try {
-            CURL* curl = curl_easy_init();
-            if (curl) {
-                char curlErrorBuffer[CURL_ERROR_SIZE]{};
-                curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlErrorBuffer);
-                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-                curl_easy_setopt(curl, CURLOPT_POST, 1L);
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-                // Быстрые таймауты
-                curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 750L);
-                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 400L);
-                // Отключить проверку сертификата для localhost (если нужен HTTPS)
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    try {
+        CURL* curl = curl_easy_init();
+        if (curl) {
+            char curlErrorBuffer[CURL_ERROR_SIZE]{};
+            curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlErrorBuffer);
+            
+            // Устанавливаем полный URL (адрес + параметры)
+            curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
+            
+            // Явно указываем, что это GET запрос
+            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 
-                CURLcode res = curl_easy_perform(curl);
-                if (res != CURLE_OK) {
-                    flog::warn("curlPOST_begin_new curl_easy_perform() failed: {0}", curl_easy_strerror(res));
-                } else {
-                    flog::info("curlPOST_begin_new POST success to {0} with payload {1}", url, payload);
-                }
+            // Быстрые таймауты
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 750L);
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 400L);
+            
+            // Отключить проверку сертификата
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-                long http_code = 0;
-                curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-                if (http_code != 200) {
-                    flog::warn("Server returned HTTP code: {0}", http_code);
-                }
-                curl_easy_cleanup(curl);
+        flog::info("curlGET_begin_new GET  -  {0}", full_url);
+
+            CURLcode res = curl_easy_perform(curl);
+            if (res != CURLE_OK) {
+                flog::warn("curlGET_begin_new GET failed: {0}", curl_easy_strerror(res));
             } else {
-                flog::error("curl_easy_init() failed");
+                flog::info("curlGET_begin_new GET success to {0}", full_url);
             }
-        } catch (const std::exception& e) {
-            flog::error("curlPOST_begin_new exception: {0}", e.what());
-        } })
+
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            if (http_code != 200) {
+                flog::warn("Server returned HTTP code: {0}", http_code);
+            }
+            curl_easy_cleanup(curl);
+        } else {
+            flog::error("curl_easy_init() failed");
+        }
+    } catch (const std::exception& e) {
+        flog::error("curlGET_begin_new exception: {0}", e.what());
+    } })
             .detach();
 
         return false;
     }
 
-    bool curlPOST_end_new()
+    bool curlGET_end_new()
     {
         if (!status_direction)
             return false;
 
-        std::string url = "https://127.0.0.1:48601/";
-        std::string payload = "?type=lotus_stop_pelengation&user=user1&token=3K8jj0iWGMYMTWCzjfl8&ln=en&";
+        std::string base_url = "https://127.0.0.1:48601/";
+        if (radioMode == 0)
+            base_url = "https://192.168.88.11:48601/";
+        else
+            base_url = "https://192.168.30.100:48601/";
 
-        std::thread([url, payload]()
+        std::string params = "?type=lotus_stop_pelengation&user=rpm&token=Xi7uHGtXzHE63UWUAiHN&ln=en&";
+
+        // Склеиваем базовый URL и параметры
+        std::string full_url = base_url + params;
+
+        std::thread([full_url]()
                     {
-        try {
-            CURL* curl = curl_easy_init();
-            if (curl) {
-                char curlErrorBuffer[CURL_ERROR_SIZE]{};
-                curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlErrorBuffer);
-                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-                curl_easy_setopt(curl, CURLOPT_POST, 1L);
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-                curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 750L);
-                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 400L);
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    try {
+        CURL* curl = curl_easy_init();
+        if (curl) {
+            char curlErrorBuffer[CURL_ERROR_SIZE]{};
+            curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlErrorBuffer);
+            
+            // Устанавливаем полный URL
+            curl_easy_setopt(curl, CURLOPT_URL, full_url.c_str());
+            
+            // Указываем GET метод
+            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+            
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 750L);
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 400L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-                CURLcode res = curl_easy_perform(curl);
-                if (res != CURLE_OK) {
-                    flog::warn("curlPOST_end_new curl_easy_perform() failed: {0}", curl_easy_strerror(res));
-                } else {
-                    flog::info("curlPOST_end_new POST success to {0} with payload {1}", url, payload);
-                }
-
-                long http_code = 0;
-                curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-                if (http_code != 200) {
-                    flog::warn("Server returned HTTP code: {0}", http_code);
-                }
-                curl_easy_cleanup(curl);
+            CURLcode res = curl_easy_perform(curl);
+            if (res != CURLE_OK) {
+                flog::warn("curlGET_end_new GET failed: {0}", curl_easy_strerror(res));
             } else {
-                flog::error("curl_easy_init() failed");
+                flog::info("curlGET_end_new GET success to {0}", full_url);
             }
-        } catch (const std::exception& e) {
-            flog::error("curlPOST_end_new exception: {0}", e.what());
-        } })
+
+            long http_code = 0;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+            if (http_code != 200) {
+                flog::warn("Server returned HTTP code: {0}", http_code);
+            }
+            curl_easy_cleanup(curl);
+        } else {
+            flog::error("curl_easy_init() failed");
+        }
+    } catch (const std::exception& e) {
+        flog::error("curlGET_end_new exception: {0}", e.what());
+    } })
             .detach();
 
         return false;
@@ -3537,7 +3789,7 @@ private:
     std::string currWavFile = "";
     double current = 88000000.0;
 
-    std::atomic<bool> processing = 0;
+    std::atomic<bool> processing{false};
     int changing = 0;
 
     bool isARM = false;
@@ -3548,7 +3800,6 @@ private:
 
     std::atomic<bool> _restart{false};
     std::atomic<bool> insert_REC{false};
-    std::atomic<bool> stop_requested{false};
     std::atomic<int> stop_request_reason{StopReason::NONE};
     int radioMode = 0;
     int maxRecDuration = 10;
@@ -3574,6 +3825,7 @@ private:
     bool startFirst = false;
 
     int Signal = -1;
+    int SignalInitCtrl = 0;
 
     int NUM_INST = 0;
     bool initialized = false;
@@ -3597,12 +3849,6 @@ private:
     int akfUdpPort = 0;
 
     // Pre-recording buffer variables
-
-
-
-
-
-
     bool isPreRecordChannel(const std::string &name)
     {
         if (!preRecord)
@@ -3613,21 +3859,22 @@ private:
             return false;
         if (preRecordTimeMs < 100)
             return false;
+        // if (SignalInitCtrl == 1) // MKF
+        //     return false;
         const std::string prefix = "Запис C";
         if (name.rfind(prefix, 0) == 0 && !name.empty())
         {
             char last = name.back();
             if (last >= '1' && last <= '9')
             {
-                isPreRecord = true;
-                return isPreRecord;
+                return true;
             };
         }
         return false;
     }
 
     bool preRecord = true;
-    int preRecordTimeMs = 500;
+    int preRecordTimeMs = 1000;
     std::unique_ptr<LockFreeRingBuffer> monoPreBuffer;
     size_t preBufferSizeInSamples = 0;
     bool isPreRecord = false;

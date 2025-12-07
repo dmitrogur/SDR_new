@@ -15,11 +15,24 @@
 SDRPP_MOD_INFO{
     /* Name:            */ "audio_sink",
     /* Description:     */ "Audio sink module for SDR++",
-    /* Author:          */ "Ryzerth",
+    /* Author:          */ "DMH",
     /* Version:         */ 0, 1, 0,
     /* Max instances    */ 1};
 
 ConfigManager config;
+
+// Функция для корректировки частоты дискретизации в конфигурации
+void adjust_sample_rates(json& config_json) {
+    for (auto& [channel, channel_config] : config_json.items()) {
+        if (channel_config.contains("devices")) {
+            for (auto& [device, sample_rate] : channel_config["devices"].items()) {
+                if (sample_rate.get<unsigned int>() > 16000) {
+                    sample_rate = 8000;
+                }
+            }
+        }
+    }
+}
 
 class AudioSink : SinkManager::Sink
 {
@@ -45,6 +58,16 @@ public:
             config.conf[_streamName]["device"] = "";
             config.conf[_streamName]["devices"] = json({});
         }
+
+        // Применяем логику изменения частоты дискретизации
+        if (config.conf.contains(_streamName) && config.conf[_streamName].contains("devices")) {
+            for (auto& [dev_name, sample_rate] : config.conf[_streamName]["devices"].items()) {
+                if (sample_rate.get<unsigned int>() > 16000) {
+                    sample_rate = 8000;
+                }
+            }
+        }
+
         device = config.conf[_streamName]["device"];
         config.release(created);
 
@@ -140,7 +163,15 @@ public:
             created = true;
             config.conf[_streamName]["devices"][devList[id].name] = devList[id].preferredSampleRate;
         }
-        sampleRate = config.conf[_streamName]["devices"][devList[id].name];
+
+        // Применяем логику изменения частоты дискретизации
+        unsigned int current_rate = config.conf[_streamName]["devices"][devList[id].name];
+        if (current_rate > 16000) {
+            current_rate = 8000;
+            config.conf[_streamName]["devices"][devList[id].name] = current_rate;
+        }
+        sampleRate = current_rate;
+        
         config.release(created);
 
         sampleRates = devList[id].sampleRates;
@@ -167,7 +198,24 @@ public:
         if (!found)
         {
             sampleRate = defaultSr;
-            srId = defaultId;
+            if (sampleRate > 16000) {
+                sampleRate = 8000;
+            }
+            
+            // Ищем 8000 или 16000 в списке доступных
+            bool found_alternative = false;
+            for(int i = 0; i < sampleRates.size(); i++) {
+                if (sampleRates[i] == 8000 || sampleRates[i] == 16000) {
+                    srId = i;
+                    sampleRate = sampleRates[i];
+                    found_alternative = true;
+                    break;
+                }
+            }
+            if (!found_alternative) {
+                srId = defaultId;
+                sampleRate = defaultSr;
+            }
         }
         flog::info("selectById. srId = {0}", srId);
         _stream->setSampleRate(sampleRate);
@@ -202,6 +250,9 @@ public:
         if (ImGui::Combo(("##_audio_sink_sr_" + _streamName).c_str(), &srId, sampleRatesTxt.c_str()))
         {
             sampleRate = sampleRates[srId];
+            if (sampleRate > 16000) {
+                sampleRate = 8000;
+            }
             _stream->setSampleRate(sampleRate);
             if (running.load())
             {
@@ -316,7 +367,7 @@ private:
 
     std::vector<unsigned int> sampleRates;
     std::string sampleRatesTxt;
-    unsigned int sampleRate = 48000;
+    unsigned int sampleRate = 8000;
     // std::mutex audioMtx;
     RtAudio audio;
 };
@@ -372,6 +423,12 @@ MOD_EXPORT void _INIT_()
     json def = json({});
     config.setPath(core::args["root"].s() + "/audio_sink_config.json");
     config.load(def);
+
+    // Применяем логику изменения частоты дискретизации ко всей конфигурации
+    config.acquire();
+    adjust_sample_rates(config.conf);
+    config.release(true); // Сохраняем изменения
+
     config.enableAutoSave();
 }
 

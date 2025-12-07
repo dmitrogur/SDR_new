@@ -30,7 +30,6 @@
 #include <signal_path/signal_path.h>
 #include <gui/smgui.h>
 
-
 #define DEBUG false
 std::string channal = "Канал приймання";
 int old_work = 0;
@@ -1405,147 +1404,146 @@ void MainWindow::draw()
 
     // Элементы управления масштабом и уровнем FFT/водопада (справа, вертикальные слайдеры)
     ImVec2 wfSliderSize(20.0f * style::uiScale, 150.0f * style::uiScale);
+    if (!gui::mainWindow.getStopMenuUI()) {
+        //  style::beginDisabled(); // отключаем управление, если запись активна
+        // if (_work)
+        //  Надпись "Масш." (масштаб FFT/водопада)
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Масш.").x / 2.0f));
+        ImGui::TextUnformatted("Масш.");
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
+        // Вертикальный ползунок для масштаба спектра/водопада (bw от 0.0 до 1.0)
+        if (ImGui::VSliderFloat("##_7_", wfSliderSize, &bw, 1.0f, 0.0f, "%0.3f"))
+        {
+            // Если был включен Hold (заморозка спектра), при изменении масштаба отключаем его
 
-    if (_work)
-    {
-        style::beginDisabled(); // отключаем управление, если запись активна
-    }
-
-    // Надпись "Масш." (масштаб FFT/водопада)
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Масш.").x / 2.0f));
-    ImGui::TextUnformatted("Масш.");
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
-    // Вертикальный ползунок для масштаба спектра/водопада (bw от 0.0 до 1.0)
-    if (ImGui::VSliderFloat("##_7_", wfSliderSize, &bw, 1.0f, 0.0f, "%0.3f"))
-    {
-        // Если был включен Hold (заморозка спектра), при изменении масштаба отключаем его
-        if (displaymenu::getFFTHold())
-        {
-            displaymenu::setFFTHold(false);
-            gui::waterfall.setFFTHold(false);
-        }
-        double factor = (double)bw * (double)bw;
-        // Вычисляем новую полосу обзора (finalBw) с учетом желаемого масштаба
-
-        if (factor > 0.85)
-            factor = 0.85;
-        setViewBandwidthSlider(bw);
-        double wfBw = gui::waterfall.getBandwidth(); // полоса обзора всего сигнала (максимум)
-        double delta = wfBw - 1000.0;
-        double finalBw = std::min<double>(1000.0 + factor * delta, wfBw);
-        // Ограничиваем полосу FFT/водопада значением 10 МГц, чтобы не превышать эту границу
-        if (finalBw > VIEWBANDWICH)
-        {
-            finalBw = VIEWBANDWICH;
-        }
-        gui::waterfall.setViewBandwidth(finalBw);
-        if (vfo != NULL)
-        {
-            gui::waterfall.setViewOffset(vfo->centerOffset); // центрируем основной VFO на экране после изменения масштаба
-        }
-        /// setViewBandwidthSlider(bw); // сохраняем положение слайдера масштаба (для синхронизации, если необходимо)
-    }
-    else
-    {
-        // Если мы в ARM-режиме, синхронизируем положение слайдера масштаба с сервером
-        if (currSource == SOURCE_ARM)
-        {
-            if (bw != getViewBandwidthSlider(currServer))
+            if (displaymenu::getFFTHold())
             {
-                bw = getViewBandwidthSlider(currServer);
-                double factor = (double)bw * (double)bw;
-                if (factor > 0.85)
-                    factor = 0.85; // гарантируем factor <= 0.85 (верхний предел)
-                double wfBw = gui::waterfall.getBandwidth();
-                double delta = wfBw - 1000.0;
-                double finalBw = std::min<double>(1000.0 + factor * delta, wfBw);
-                if (finalBw > VIEWBANDWICH)
-                {
-                    finalBw = VIEWBANDWICH;
-                }
-                gui::waterfall.setViewBandwidth(finalBw);
-                if (vfo != NULL)
-                {
-                    gui::waterfall.setViewOffset(vfo->centerOffset);
-                }
+                displaymenu::setFFTHold(false);
+                gui::waterfall.setFFTHold(false);
             }
-        }
-    }
+            double factor = (double)bw * (double)bw;
+            // Вычисляем новую полосу обзора (finalBw) с учетом желаемого масштаба
 
-    if (_work)
-    {
-        style::endDisabled();
-    }
-
-    ImGui::NewLine();
-    // Надпись "Макс." (верхний уровень FFT)
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Макс.").x / 2.0f));
-    ImGui::TextUnformatted("Макс.");
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
-    // Ползунок регулировки максимального уровня FFT (fftMax)
-    if (ImGui::VSliderFloat("##_8_", wfSliderSize, &fftMax, 0.0f, -160.0f, ""))
-    {
-        fftMax = std::max<float>(fftMax, fftMin + 10.0f);
-        setFFTMaxSlider(fftMax); // Просто сохраняем новое значение
-    }
-    /*
-    if (ImGui::VSliderFloat("##_8_", wfSliderSize, &fftMax, 0.0f, -160.0f, ""))
-    {
-        float t_fftMax = fftMax;
-        fftMax = std::max<float>(t_fftMax, fftMin + 10.0f);
-        // Сохраняем новый max только для основного сервера (currServer == 0) и если значение реально изменилось (не было ограничено)
-        if (currServer == 0 && t_fftMax == fftMax)
-        {
-            core::configManager.acquire();
-            core::configManager.conf["max"] = fftMax;
-            core::configManager.release(true);
-        }
-        setFFTMaxSlider(fftMax);
-    }
-    else
-    {
-        if (currSource == SOURCE_ARM)
-        {
-            float t_fftMax = getFFTMaxSlider(currServer);
-            if (t_fftMax != 0.0f)
+            if (factor > 0.85)
+                factor = 0.85;
+            setViewBandwidthSlider(bw);    
+            double wfBw = gui::waterfall.getBandwidth(); // полоса обзора всего сигнала (максимум)
+            double delta = wfBw - 1000.0;
+            double finalBw = std::min<double>(1000.0 + factor * delta, wfBw);
+            // Ограничиваем полосу FFT/водопада значением 10 МГц, чтобы не превышать эту границу
+            
+            if (finalBw > VIEWBANDWICH)
             {
-                if (fftMax != t_fftMax)
+                finalBw = VIEWBANDWICH;
+            }
+            
+            gui::waterfall.setViewBandwidth(finalBw);
+            if (vfo != NULL)
+            {
+                gui::waterfall.setViewOffset(vfo->centerOffset); // центрируем основной VFO на экране после изменения масштаба
+            }
+            /// setViewBandwidthSlider(bw); // сохраняем положение слайдера масштаба (для синхронизации, если необходимо)
+        }
+        else
+        {
+            // Если мы в ARM-режиме, синхронизируем положение слайдера масштаба с сервером
+            if (currSource == SOURCE_ARM)
+            {
+                if (bw != getViewBandwidthSlider(currServer))
                 {
-                    fftMax = std::max<float>(t_fftMax, fftMin + 10.0f);
-                    if (currServer == 0)
+                    bw = getViewBandwidthSlider(currServer);
+                    double factor = (double)bw * (double)bw;
+                    if (factor > 0.85)
+                        factor = 0.85; // гарантируем factor <= 0.85 (верхний предел)
+                    double wfBw = gui::waterfall.getBandwidth();
+                    double delta = wfBw - 1000.0;
+                    double finalBw = std::min<double>(1000.0 + factor * delta, wfBw);
+                    if (finalBw > VIEWBANDWICH)
                     {
-                        core::configManager.acquire();
-                        core::configManager.conf["max"] = fftMax;
-                        core::configManager.release(true);
+                        finalBw = VIEWBANDWICH;
+                    }
+                    gui::waterfall.setViewBandwidth(finalBw);
+                    if (vfo != NULL)
+                    {
+                        gui::waterfall.setViewOffset(vfo->centerOffset);
                     }
                 }
             }
         }
-    }
-    */
 
-    ImGui::NewLine();
-    // Надпись "Мін." (нижний уровень FFT, на украинском)
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Мін.").x / 2.0f));
-    ImGui::TextUnformatted("Мін.");
-    ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
-    ImGui::SetItemUsingMouseWheel(); // позволяем менять значение колесом мыши при наведении
-    // Ползунок регулировки минимального уровня FFT (fftMin)
-    if (ImGui::VSliderFloat("##_9_", wfSliderSize, &fftMin, 0.0f, -160.0f, ""))
-    {
-        fftMin = std::min<float>(fftMax - 10.0f, fftMin);
-        setFFTMinSlider(fftMin); // Просто сохраняем новое значение
-        /*
-        if (currSource == SOURCE_ARM)
+        // if (_work)
+        //      style::endDisabled();
+
+        ImGui::NewLine();
+        // Надпись "Макс." (верхний уровень FFT)
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Макс.").x / 2.0f));
+        ImGui::TextUnformatted("Макс.");
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
+        // Ползунок регулировки максимального уровня FFT (fftMax)
+        if (ImGui::VSliderFloat("##_8_", wfSliderSize, &fftMax, 0.0f, -160.0f, ""))
         {
+            fftMax = std::max<float>(fftMax, fftMin + 10.0f);
+            setFFTMaxSlider(fftMax); // Просто сохраняем новое значение
+        }
+        /*
+        if (ImGui::VSliderFloat("##_8_", wfSliderSize, &fftMax, 0.0f, -160.0f, ""))
+        {
+            float t_fftMax = fftMax;
+            fftMax = std::max<float>(t_fftMax, fftMin + 10.0f);
+            // Сохраняем новый max только для основного сервера (currServer == 0) и если значение реально изменилось (не было ограничено)
+            if (currServer == 0 && t_fftMax == fftMax)
+            {
+                core::configManager.acquire();
+                core::configManager.conf["max"] = fftMax;
+                core::configManager.release(true);
+            }
+            setFFTMaxSlider(fftMax);
         }
         else
         {
-            core::configManager.acquire();
-            core::configManager.conf["min"] = fftMin;
-            core::configManager.release(true);
+            if (currSource == SOURCE_ARM)
+            {
+                float t_fftMax = getFFTMaxSlider(currServer);
+                if (t_fftMax != 0.0f)
+                {
+                    if (fftMax != t_fftMax)
+                    {
+                        fftMax = std::max<float>(t_fftMax, fftMin + 10.0f);
+                        if (currServer == 0)
+                        {
+                            core::configManager.acquire();
+                            core::configManager.conf["max"] = fftMax;
+                            core::configManager.release(true);
+                        }
+                    }
+                }
+            }
         }
         */
+
+        ImGui::NewLine();
+        // Надпись "Мін." (нижний уровень FFT, на украинском)
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - (ImGui::CalcTextSize("Мін.").x / 2.0f));
+        ImGui::TextUnformatted("Мін.");
+        ImGui::SetCursorPosX((ImGui::GetWindowSize().x / 2.0f) - 10 * style::uiScale);
+        ImGui::SetItemUsingMouseWheel(); // позволяем менять значение колесом мыши при наведении
+        // Ползунок регулировки минимального уровня FFT (fftMin)
+        if (ImGui::VSliderFloat("##_9_", wfSliderSize, &fftMin, 0.0f, -160.0f, ""))
+        {
+            fftMin = std::min<float>(fftMax - 10.0f, fftMin);
+            setFFTMinSlider(fftMin); // Просто сохраняем новое значение
+            /*
+            if (currSource == SOURCE_ARM)
+            {
+            }
+            else
+            {
+                core::configManager.acquire();
+                core::configManager.conf["min"] = fftMin;
+                core::configManager.release(true);
+            }
+            */
+        }
     }
     /*
     if (ImGui::VSliderFloat("##_9_", wfSliderSize, &fftMin, 0.0f, -160.0f, ""))
@@ -1624,6 +1622,8 @@ void MainWindow::setPlayState(bool _playing)
 
     // flog::info("!!!!!!!!!! setPlayState_RPM CHANGING to {0} !!!!!!!!!!", _playing);
     playing = _playing;
+    
+    flog::info(">>>> setPlayState on RPM <<<< playing {0}", playing);
 
     if (playing)
     {                                   // === ЗАПУСК ===
@@ -2145,7 +2145,7 @@ int MainWindow::getLinearGain()
 //============================================================
 void MainWindow::setViewBandwidthSlider(float bandwidth)
 {
-    flog::info("Update setViewBandwidthSlider bandwidth {0}, bw {1}", bandwidth, bw);
+    // flog::info("Update setViewBandwidthSlider bandwidth {0}, bw {1}", bandwidth, bw);
     bw = bandwidth;
     server_bw[currServer] = bw;
 }
@@ -2528,9 +2528,7 @@ bool MainWindow::getRecording()
 }
 void MainWindow::setRecording(bool val)
 {
-    flog::info("[GUI] ENTERING setRecording({0})", val);
     curr_recording = val;
-    flog::info("[GUI] LEAVING setRecording()");
 }
 bool MainWindow::getServerRecording(int srv)
 {
@@ -2792,7 +2790,7 @@ void MainWindow::setAuto_levelScan(uint8_t srv, bool val)
     }
     else
         AutoLevel_scan[srv] = val;
-    flog::info("setAuto_levelScan AutoLevel_scan[0] = {0}", AutoLevel_scan[0]);
+    // flog::info("setAuto_levelScan AutoLevel_scan[0] = {0}", AutoLevel_scan[0]);
 }
 
 //==============================================================================
@@ -2811,7 +2809,6 @@ void MainWindow::setAuto_levelCtrl(uint8_t srv, bool val)
     }
     else
         AutoLevel_ctrl[srv] = val;
-    flog::info("setAuto_levelCtrl AutoLevel_ctrl[0] = {0}", AutoLevel_ctrl[0]);
 }
 //==============================================================================
 void MainWindow::setUpdateListRcv5Srch(uint8_t srv, bool val)
@@ -3228,4 +3225,3 @@ void MainWindow::cleanupStaleInstances()
     // Освобождаем мьютекс и сохраняем изменения на диск, ТОЛЬКО если они были.
     core::configManager.release(config_was_modified);
 }
-

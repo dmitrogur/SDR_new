@@ -55,6 +55,18 @@ struct ObservationBookmark
     int Signal;
 };
 
+#pragma pack(push, 1)
+struct CompactBookmarkData
+{
+    int id;
+    double freq;
+    float bw;
+    int mode;
+    int level;
+    int signal;
+};
+#pragma pack(pop)
+
 struct WaterfallBookmark
 {
     std::string listName;
@@ -242,7 +254,7 @@ public:
         }
         else
         {
-            glevel = -70;
+            glevel = -50;
             _update = true;
             config.conf["glevel"] = glevel;
         }
@@ -361,9 +373,10 @@ public:
         else
             isARM = false;
 
+        getScanLists();
+
         if (isARM)
         {
-            getScanLists();
             // gui::mainWindow.setAuto_levelScan(MAX_SERVERS, status_auto_level3);
             gui::mainWindow.setLevelDbScan(MAX_SERVERS, glevel);
 
@@ -408,7 +421,10 @@ private:
     {
         ObservationManagerModule *_this = (ObservationManagerModule *)ctx;
         // if (currSource != SOURCE_ARM) return;
-        std::mutex scanInfoMtx;
+        if (!_this->isServer && !_this->isARM)
+        {
+            return;
+        }
         while (_this->infoThreadStarted.load())
         {
             if (core::g_isExiting)
@@ -421,7 +437,7 @@ private:
 
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             {
-                std::lock_guard<std::mutex> lck(scanInfoMtx);
+                std::lock_guard<std::mutex> lck(_this->classMtx);
                 uint8_t currSrvr = gui::mainWindow.getCurrServer();
                 _this->CurrSrvr = currSrvr;
 
@@ -441,6 +457,103 @@ private:
                 // flog::info("currSrvr {0}, _this->selectedListId {1}, getidOfList_scan {2}", currSrvr, _this->selectedListId, gui::mainWindow.getidOfList_scan(currSrvr));
                 if (_this->isARM)
                 {
+                    if (gui::mainWindow.getUpdateMenuRcv6Scan())
+                    {
+                        _this->currSource = sourcemenu::getCurrSource();
+                        flog::info("gui::mainWindow.getUpdateMenuRcv6Scan()");
+                        gui::mainWindow.setUpdateMenuRcv6Scan(false);
+                        bool _update = false;
+                        /*
+                        if (gui::mainWindow.getUpdateListRcv6Scan(currSrvr))
+                        {
+                            flog::info("gui::mainWindow.getUpdateListRcv6Scan()");
+                            gui::mainWindow.setUpdateListRcv6Scan(currSrvr, false);
+
+                            // Очистка старых списков
+                            config.acquire();
+                            for (auto it = _this->listNames.begin(); it != _this->listNames.end(); ++it)
+                            {
+                                std::string name = *it;
+                                if (name != "General")
+                                {
+                                    config.conf["lists"].erase(name);
+                                }
+                            }
+                            config.release(true);
+
+                            // Получаем буфер
+                            int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_scan();
+                            // Копируем во временный вектор для безопасности
+                            std::vector<uint8_t> rcvBuf(cnt_bbuf);
+                            memcpy(rcvBuf.data(), gui::mainWindow.getbbuf_scan(), cnt_bbuf);
+
+                            config.acquire();
+
+                            size_t offset = 0;
+                            while (offset < rcvBuf.size())
+                            {
+                                // 1. Читаем имя (32 байта)
+                                if (offset + 32 > rcvBuf.size())
+                                    break;
+                                char nameBuf[32];
+                                memcpy(nameBuf, rcvBuf.data() + offset, 32);
+                                offset += 32;
+
+                                // Гарантируем null-termination
+                                nameBuf[31] = '\0';
+                                std::string listName(nameBuf);
+
+                                // 2. Читаем количество элементов (int)
+                                if (offset + sizeof(int) > rcvBuf.size())
+                                    break;
+                                int itemCount = 0;
+                                memcpy(&itemCount, rcvBuf.data() + offset, sizeof(int));
+                                if (itemCount > MAX_COUNT_OF_DATA)
+                                    itemCount = MAX_COUNT_OF_DATA;
+                                offset += sizeof(int);
+
+                                // Создаем JSON объект для списка
+                                json def = json::object();
+                                def["showOnWaterfall"] = true;
+                                def["bookmarks"] = json::object();
+
+                                // 3. Читаем элементы
+                                for (int i = 0; i < itemCount; i++)
+                                {
+                                    if (offset + sizeof(CompactBookmarkData) > rcvBuf.size())
+                                    {
+                                        flog::error("Packet truncated inside list items!");
+                                        break;
+                                    }
+
+                                    CompactBookmarkData item;
+                                    memcpy(&item, rcvBuf.data() + offset, sizeof(CompactBookmarkData));
+                                    offset += sizeof(CompactBookmarkData);
+
+                                    std::string bookmarkname = std::to_string(item.id);
+                                    def["bookmarks"][bookmarkname]["frequency"] = item.freq;
+                                    def["bookmarks"][bookmarkname]["bandwidth"] = item.bw;
+                                    def["bookmarks"][bookmarkname]["level"] = item.level;
+                                    def["bookmarks"][bookmarkname]["mode"] = item.mode;
+                                    def["bookmarks"][bookmarkname]["Signal"] = item.signal;
+                                }
+
+                                // Сохраняем в конфиг
+                                if (listName.length() > 0)
+                                {
+                                    config.conf["lists"][listName] = def;
+                                }
+                            }
+
+                            config.release(true);
+                            _this->refreshLists();
+
+                            gui::mainWindow.setScanListNamesTxt(_this->listNamesTxt);
+                            gui::mainWindow.setUpdateScanListForBotton(currSrvr, true);
+                            _update = true;
+                        }
+                        */
+                    }
                     if (_this->selectedListId != gui::mainWindow.getidOfList_scan(currSrvr) && !gui::mainWindow.getUpdateMenuSnd6Scan(currSrvr))
                     {
                         if (gui::mainWindow.getidOfList_scan(currSrvr) < _this->listNames.size())
@@ -480,137 +593,162 @@ private:
                 }
                 if (_this->isServer)
                 {
-                    if (gui::mainWindow.getUpdateMenuRcv6Scan())
+                    bool _update = false;
+
+                    // 1) Обновление списков, только если действительно пришёл новый список
+                    if (gui::mainWindow.getUpdateListRcv6Scan(currSrvr))
                     {
-                        _this->currSource = sourcemenu::getCurrSource();
-                        flog::info("gui::mainWindow.getUpdateMenuRcv6Scan()");
-                        gui::mainWindow.setUpdateMenuRcv6Scan(false);
-                        bool _update = false;
-                        if (gui::mainWindow.getUpdateListRcv6Scan(currSrvr))
+                        flog::info("gui::mainWindow.getUpdateListRcv6Scan() [SERVER]");
+                        gui::mainWindow.setUpdateListRcv6Scan(currSrvr, false);
+
+                        int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_scan();
+                        if (cnt_bbuf <= 0)
                         {
-                            flog::info("gui::mainWindow.getUpdateListRcv6Scan()");
-                            gui::mainWindow.setUpdateListRcv6Scan(currSrvr, false);
-                            config.acquire();
-                            for (auto it = _this->listNames.begin(); it != _this->listNames.end(); ++it)
-                            {
-                                // listNames->first;
-                                std::string name = *it;
-                                if (name != "General")
-                                {
-                                    // flog::info(" delete listName = {0}...", name);
-                                    config.conf["lists"].erase(name);
-                                }
-                            }
-                            config.release(true);
+                            flog::warn("getUpdateListRcv6Scan[SERVER]: empty buffer, size={0}", cnt_bbuf);
+                        }
+                        else
+                        {
+                            std::vector<uint8_t> rcvBuf(cnt_bbuf);
+                            memcpy(rcvBuf.data(), gui::mainWindow.getbbuf_scan(), cnt_bbuf);
 
-                            int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_scan();
-                            flog::info("gui::mainWindow.getUpdateListRcv6Scan() cnt_bbuf = {0}", cnt_bbuf);
-
-                            void *bbufRCV = ::operator new(cnt_bbuf);
-                            memcpy(bbufRCV, gui::mainWindow.getbbuf_scan(), cnt_bbuf);
                             config.acquire();
-                            ScanModeList sbm;
-                            for (int poz = 0; poz < cnt_bbuf; poz = poz + sizeof(sbm))
+
+                            size_t offset = 0;
+                            while (offset < rcvBuf.size())
                             {
-                                memcpy(&sbm, ((uint8_t *)bbufRCV) + poz, sizeof(sbm));
-                                std::string listname = std::string(sbm.listName);
-                                // flog::info("!!!! poz {0}, sbm.listName {1}, listname {1}, sizeOfList {2}  ", poz, sbm.listName, sbm.sizeOfList);
-                                json def;
-                                def = json::object();
-                                for (int i = 0; i < sbm.sizeOfList; i++)
-                                {
-                                    std::string bookmarkname = std::to_string(sbm.bookmarkName[i]);
-                                    def["bookmarks"][bookmarkname]["frequency"] = sbm.frequency[i];
-                                    def["bookmarks"][bookmarkname]["bandwidth"] = sbm.bandwidth[i];
-                                    def["bookmarks"][bookmarkname]["level"] = sbm.level[i];
-                                    def["bookmarks"][bookmarkname]["mode"] = sbm.mode[i];
-                                    def["bookmarks"][bookmarkname]["Signal"] = sbm.Signal[i];
-                                }
+                                if (offset + 32 > rcvBuf.size())
+                                    break;
+
+                                char nameBuf[32];
+                                memcpy(nameBuf, rcvBuf.data() + offset, 32);
+                                offset += 32;
+
+                                nameBuf[31] = '\0';
+                                std::string listName(nameBuf);
+
+                                if (offset + sizeof(int) > rcvBuf.size())
+                                    break;
+
+                                int itemCount = 0;
+                                memcpy(&itemCount, rcvBuf.data() + offset, sizeof(int));
+                                if (itemCount > MAX_COUNT_OF_DATA)
+                                    itemCount = MAX_COUNT_OF_DATA;
+                                offset += sizeof(int);
+
+                                json def = json::object();
                                 def["showOnWaterfall"] = true;
-                                // config.conf["lists"][listname] = true;
-                                config.conf["lists"][listname] = def;
-                                /// flog::info("!!!! poz {0}, sbm.listName {1}, listname {1}  ", poz, sbm.listName, listname);
+                                def["bookmarks"] = json::object();
+
+                                for (int i = 0; i < itemCount; i++)
+                                {
+                                    if (offset + sizeof(CompactBookmarkData) > rcvBuf.size())
+                                    {
+                                        flog::error("Packet truncated inside list items! [SERVER]");
+                                        break;
+                                    }
+
+                                    CompactBookmarkData item;
+                                    memcpy(&item, rcvBuf.data() + offset, sizeof(CompactBookmarkData));
+                                    offset += sizeof(CompactBookmarkData);
+
+                                    std::string bookmarkname = std::to_string(item.id);
+                                    def["bookmarks"][bookmarkname]["frequency"] = item.freq;
+                                    def["bookmarks"][bookmarkname]["bandwidth"] = item.bw;
+                                    def["bookmarks"][bookmarkname]["level"] = item.level;
+                                    def["bookmarks"][bookmarkname]["mode"] = item.mode;
+                                    def["bookmarks"][bookmarkname]["Signal"] = item.signal;
+                                }
+
+                                if (!listName.empty())
+                                {
+                                    config.conf["lists"][listName] = def;
+                                }
                             }
+
                             config.release(true);
-                            ::operator delete(bbufRCV);
                             _this->refreshLists();
 
                             gui::mainWindow.setScanListNamesTxt(_this->listNamesTxt);
                             gui::mainWindow.setUpdateScanListForBotton(currSrvr, true);
-                            // gui::mainWindow.setScanListNamesTxt(currSrvr, _this->listNamesTxt);
                             _update = true;
-                        }
-                        if (_update || (_this->selectedListId != gui::mainWindow.getidOfList_scan(currSrvr) && !gui::mainWindow.getUpdateMenuSnd6Scan(currSrvr)))
-                        {
-                            flog::info("currSrvr {0}, _this->selectedListId {1}, getidOfList_scan {2}, listNames.size() {3}", currSrvr, _this->selectedListId, gui::mainWindow.getidOfList_scan(currSrvr), _this->listNames.size());
-                            if (gui::mainWindow.getidOfList_scan(currSrvr) < _this->listNames.size())
-                                _this->selectedListId = gui::mainWindow.getidOfList_scan(currSrvr);
-                            else
-                                _this->selectedListId = 0;
-                            // flog::info("currSrvr {0}, _this->selectedListId {1}, getidOfList_scan {2}", currSrvr, _this->selectedListId, gui::mainWindow.getidOfList_scan(currSrvr));
-                            _this->loadByName(_this->listNames[_this->selectedListId]);
-                            config.acquire();
-                            config.conf["selectedList"] = _this->selectedListName;
-                            config.release(true);
-                        }
-                        if (gui::mainWindow.getUpdateModule_scan(currSrvr))
-                        {
-                            gui::mainWindow.setUpdateModule_scan(currSrvr, false);
-                        }
-                        bool arm_run = gui::mainWindow.getbutton_scan(currSrvr);
-                        if (_this->running.load() != arm_run)
-                        {
-                            flog::info("SCANNER3 arm_run {0}, _this->running.load {1} ", arm_run, _this->running.load());
-                            int _air_recording;
-                            core::modComManager.callInterface("Airspy", 0, NULL, &_air_recording);
-                            if (!_this->running.load())
-                            {
-                                if (_air_recording == 1)
-                                {
-                                    _this->start();
-                                }
-                            }
-                            else
-                            {
-                                _this->stop();
-                                _this->_recording.store(false);
-                                _this->_Receiving = false;
-                                _this->_detected.store(false);
-                            }
                         }
                     }
 
-                    if (gui::mainWindow.getMaxRecWaitTime_scan(currSrvr) != _this->maxRecWaitTime)
+                    // 2) Выбор активного списка — по флагу _update ИЛИ по смене idOfList_scan
+                    if (_update || (_this->selectedListId != gui::mainWindow.getidOfList_scan(currSrvr) && !gui::mainWindow.getUpdateMenuSnd6Scan(currSrvr)))
                     {
-                        _this->maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_scan(currSrvr);
+                        flog::info("currSrvr {0}, _this->selectedListId {1}, getidOfList_scan {2}, listNames.size() {3}",
+                                   currSrvr, _this->selectedListId,
+                                   gui::mainWindow.getidOfList_scan(currSrvr), _this->listNames.size());
+
+                        if (gui::mainWindow.getidOfList_scan(currSrvr) < _this->listNames.size())
+                            _this->selectedListId = gui::mainWindow.getidOfList_scan(currSrvr);
+                        else
+                            _this->selectedListId = 0;
+
+                        _this->loadByName(_this->listNames[_this->selectedListId]);
                         config.acquire();
-                        config.conf["maxRecWaitTime"] = _this->maxRecWaitTime;
+                        config.conf["selectedList"] = _this->selectedListName;
                         config.release(true);
                     }
-                    if (gui::mainWindow.getMaxRecDuration_scan(currSrvr) != _this->lingerTime)
+
+                    // 3) Обновление модуля (крутилки/ползунки и т.п.)
+                    if (gui::mainWindow.getUpdateModule_scan(currSrvr))
                     {
-                        _this->lingerTime = gui::mainWindow.getMaxRecDuration_scan(currSrvr);
-                        config.acquire();
-                        config.conf["lingerTime"] = _this->lingerTime;
-                        config.release(true);
+                        gui::mainWindow.setUpdateModule_scan(currSrvr, false);
                     }
+
                     if (_this->status_auto_level3 != gui::mainWindow.getAuto_levelScan(currSrvr))
                     {
                         _this->status_auto_level3 = gui::mainWindow.getAuto_levelScan(currSrvr);
                         config.acquire();
                         config.conf["status_auto_level"] = _this->status_auto_level3;
                         config.release(true);
+                        flog::info("UPDATE _this->status_auto_level {0}", _this->status_auto_level3);
                     }
-                    if (!_this->status_auto_level3)
+                    
+                    if (_this->status_auto_level3)
+                    {
+                        if (_this->curr_level != gui::mainWindow.getLevelDbScan(currSrvr))
+                        {
+                            _this->curr_level = gui::mainWindow.getLevelDbScan(currSrvr);
+                        }
+                    }
+                    else
                     {
                         if (_this->glevel != gui::mainWindow.getLevelDbScan(currSrvr))
                         {
                             _this->glevel = gui::mainWindow.getLevelDbScan(currSrvr);
                             _this->glevel = std::clamp<int>(_this->glevel, -150, -30);
                             _this->curr_level = _this->glevel;
-                            config.acquire();
-                            config.conf["glevel"] = _this->glevel;
-                            config.release(true);
+                        }
+                    }
+
+                    _this->lingerTime = gui::mainWindow.getMaxRecDuration_scan(currSrvr);
+                     _this->maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_scan(currSrvr);
+
+                    // 4) Собственно запуск/остановка сканирования — ДОЛЖНЫ РАБОТАТЬ ВСЕГДА
+                    bool arm_run = gui::mainWindow.getbutton_scan(currSrvr);
+                    if (_this->running.load() != arm_run)
+                    {
+                        flog::info("SCANNER3 arm_run {0}, _this->running.load {1} ",
+                                   arm_run, _this->running.load());
+                        int _air_recording = 0;
+                        core::modComManager.callInterface("Airspy", 0, NULL, &_air_recording);
+
+                        if (!_this->running.load())
+                        {
+                            if (_air_recording == 1)
+                            {
+                                _this->start();
+                            }
+                        }
+                        else
+                        {
+                            _this->stop();
+                            _this->_recording.store(false);
+                            _this->_Receiving = false;
+                            _this->_detected.store(false);
                         }
                     }
                 }
@@ -624,28 +762,6 @@ private:
         {
             if (core::modComManager.interfaceExists(vfoName))
             {
-                /*
-                double curr_freq = gui::waterfall.getCenterFrequency(); //  + gui::waterfall.vfos["Канал приймання"]->generalOffset;
-                flog::warn("curr_freq {0}, bm.frequency {1}", curr_freq, bm.frequency);
-                double  new_freq= bm.frequency;
-                if (new_freq!= curr_freq)
-                {
-                    flog::warn("Tunning... curr_freq {0} != bm.frequency {1}", curr_freq, new_freq);
-                    // gui::waterfall.centerFreqMoved = false;
-                    //if (!gui::waterfall.selectedVFO.empty())
-                    //{
-                        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        tuner::centerTuning(gui::waterfall.selectedVFO, new_freq);
-                        flog::warn("Tunning...  OK! curr_freq {0} != bm.frequency {1}", curr_freq, new_freq);
-                        tuner::tune(gui::mainWindow.gettuningMode(), gui::waterfall.selectedVFO, new_freq);
-                    //}
-                    flog::warn("Tunning...  OK! curr_freq {0} != bm.frequency {1}", curr_freq, new_freq);
-                    gui::waterfall.centerFreqMoved = true;
-
-                    gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
-                    // std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                }
-                */
                 if (core::modComManager.getModuleName(vfoName) == "radio")
                 {
                     int mode = bm.mode;
@@ -945,7 +1061,7 @@ private:
 
                 flog::info("TRACE. editedBookmark.mode = {0} !", editedBookmark.mode);
             }
-            editedBookmark.level = -70;
+            editedBookmark.level = -50;
             // std::clamp<int>(editedBookmark.level, -150, -30);
 
             ImGui::EndTable();
@@ -1213,7 +1329,7 @@ private:
                     wbm.bookmark.Signal = 0;
                 }
 
-                wbm.bookmark.level = -70; // std::clamp<int>(wbm.bookmark.level, -150, -30);
+                wbm.bookmark.level = -50; // std::clamp<int>(wbm.bookmark.level, -150, -30);
 
                 wbm.bookmark.selected = false;
                 waterfallBookmarks.push_back(wbm);
@@ -1225,70 +1341,104 @@ private:
 
     void getScanLists()
     {
-        // flog::info("    getScanLists");
-        void *bbuf = ::operator new(MAX_LIST_PACKET_SCAN_SIZE); // new uint8_t[MAX_PACKET_SIZE];
-        int sizeofbbuf = 0;
-        ScanModeList sbm;
+        std::vector<uint8_t> bbuf;
+        // При 64 элементах список занимает ~2 КБ.
+        // Лимит 18000 байт позволит передать ~8-9 списков за раз.
+        const size_t SAFE_PACKET_LIMIT = 18000;
+        bbuf.reserve(SAFE_PACKET_LIMIT + 500);
+
         config.acquire();
         {
-            int count = 0;
+            int countLists = 0;
             for (auto [listName, list] : config.conf["lists"].items())
             {
-                // flog::info("listName ={0}", listName.c_str());
-                // WaterfallBookmark wbm;
-                strcpy(sbm.listName, listName.c_str());
-                // sbm.listName = listName;
+                // 1. Имя
+                char nameBuf[32];
+                memset(nameBuf, 0, 32);
+                strncpy(nameBuf, listName.c_str(), 31);
+
+                if (bbuf.size() + 32 + sizeof(int) > SAFE_PACKET_LIMIT)
+                    break;
+                bbuf.insert(bbuf.end(), nameBuf, nameBuf + 32);
+
+                // 2. Резервируем место под счетчик
+                size_t countOffset = bbuf.size();
+                int placeholder = 0;
+                const uint8_t *pZero = reinterpret_cast<const uint8_t *>(&placeholder);
+                bbuf.insert(bbuf.end(), pZero, pZero + sizeof(int));
+
+                // 3. Пишем данные с лимитом MAX_COUNT_OF_DATA (64)
+                int realItemsWritten = 0;
                 int i = 0;
+
                 for (auto [bookmarkName, bm] : config.conf["lists"][listName]["bookmarks"].items())
                 {
+                    // === ГЛАВНОЕ ОГРАНИЧЕНИЕ ===
+                    if (realItemsWritten >= MAX_COUNT_OF_DATA)
+                        break;
+                    // ===========================
+
+                    if (bbuf.size() + sizeof(CompactBookmarkData) > SAFE_PACKET_LIMIT)
+                        break;
+
+                    CompactBookmarkData item;
                     try
                     {
-                        sbm.bookmarkName[i] = std::stoi(bookmarkName);
+                        item.id = std::stoi(bookmarkName);
                     }
                     catch (...)
                     {
-                        sbm.bookmarkName[i] = i;
+                        item.id = i;
                     }
-                    // flog::info("{0}, bookmarkName ={1}", i, sbm.bookmarkName[i]);
-
-                    sbm.frequency[i] = config.conf["lists"][listName]["bookmarks"][bookmarkName]["frequency"];
-                    // flog::info("sbm.frequency[{0}] = {1}", i, sbm.frequency[i]);
-                    sbm.bandwidth[i] = config.conf["lists"][listName]["bookmarks"][bookmarkName]["bandwidth"];
-                    sbm.mode[i] = config.conf["lists"][listName]["bookmarks"][bookmarkName]["mode"];
+                    item.freq = bm["frequency"];
+                    item.bw = bm["bandwidth"];
+                    item.mode = bm["mode"];
                     try
                     {
-                        sbm.Signal[i] = config.conf["lists"][listName]["bookmarks"][bookmarkName]["Signal"];
+                        item.level = bm["level"];
                     }
-                    catch (const std::exception &e)
+                    catch (...)
                     {
-                        sbm.Signal[i] = 0;
-                        std::cerr << e.what() << '\n';
+                        item.level = -50;
                     }
-                    sbm.level[i] = -70; // std::clamp<int>(sbm.level[i], -150, -30);
+                    try
+                    {
+                        item.signal = bm["Signal"];
+                    }
+                    catch (...)
+                    {
+                        item.signal = 0;
+                    }
 
+                    const uint8_t *pItem = reinterpret_cast<const uint8_t *>(&item);
+                    bbuf.insert(bbuf.end(), pItem, pItem + sizeof(CompactBookmarkData));
+
+                    realItemsWritten++;
                     i++;
-                    if (i >= MAX_COUNT_OF_DATA)
-                        break;
                 }
-                sbm.sizeOfList = i;
-                flog::info("{0}. sbm.listName {1}, sbm.sizeOfList {2}", count, sbm.listName, sbm.sizeOfList);
-                memcpy(((uint8_t *)bbuf) + sizeofbbuf, (void *)&sbm, sizeof(sbm));
-                sizeofbbuf = sizeofbbuf + sizeof(sbm);
-                count++;
-                if (count >= MAX_BM_SIZE)
+
+                // 4. Записываем реальное количество
+                memcpy(bbuf.data() + countOffset, &realItemsWritten, sizeof(int));
+
+                countLists++;
+                if (countLists >= MAX_BM_SIZE)
+                    break;
+                if (bbuf.size() >= SAFE_PACKET_LIMIT)
                     break;
             }
         }
         config.release();
-        // gui::mainWindow.setselectedLogicId(CurrSrvr, selectedLogicId);
-        gui::mainWindow.setbbuf_scan(bbuf, sizeofbbuf);
-        ::operator delete(bbuf);
+
+        gui::mainWindow.setbbuf_scan(bbuf.data(), bbuf.size());
+
+        // Обновление UI
         gui::mainWindow.setidOfList_scan(CurrSrvr, selectedListId);
         gui::mainWindow.setMaxRecWaitTime_scan(MAX_SERVERS, maxRecWaitTime);
         gui::mainWindow.setMaxRecDuration_scan(MAX_SERVERS, lingerTime);
         gui::mainWindow.setLevelDbScan(CurrSrvr, glevel);
         gui::mainWindow.setUpdateMenuSnd6Scan(MAX_SERVERS, true);
-        flog::warn("SCAN (msgScan) sizeofbbuf: {0}, gui::mainWindow.getUpdateMenuSnd6Scan {1}", sizeofbbuf, gui::mainWindow.getUpdateMenuSnd6Scan(CurrSrvr));
+
+        flog::info("SCAN packet size: {0} bytes (Limit: {1} items/list)", bbuf.size(), MAX_COUNT_OF_DATA);
     }
 
     void loadFirst()
@@ -2071,6 +2221,11 @@ private:
                         ImGui::BeginDisabled();
                     if (ImGui::Button("СТАРТ##scanner3_arm_start_2", ImVec2(menuWidth, 0)))
                     {
+                        _this->getScanLists();
+                        gui::mainWindow.setidOfList_scan(currSrv, _this->selectedListId);
+                        // gui::mainWindow.setLevelDbScan(currSrvr, _this->glevel);
+                        gui::mainWindow.setAuto_levelScan(currSrvr, _this->status_auto_level3);
+                        gui::mainWindow.setUpdateListRcv6Scan(currSrv, true);
                         gui::mainWindow.setbutton_scan(currSrv, true);
                         gui::mainWindow.setMaxRecWaitTime_scan(MAX_SERVERS, _this->maxRecWaitTime);
                         gui::mainWindow.setMaxRecDuration_scan(MAX_SERVERS, _this->lingerTime);
@@ -2559,8 +2714,8 @@ private:
                     // Ваша оригинальная проверка шума (с исправленным синтаксисом)
                     float delta = info.maxLevel - info.noiseLevel;
                     flog::warn("(info.maxLevel {0} - info.noiseLevel {1} = {2}", info.maxLevel, info.noiseLevel, delta);
-                    // if (delta < 10.0f)
-                    if (20.0f > (delta) < 2.0f)
+                    // if (20.0f > (delta) < 2.0f)
+                    if (delta >= 0.0f && delta <= 2.0f)
                     {
                         noiseLevels.push_back(info.noiseLevel);
                     }
@@ -2654,7 +2809,7 @@ private:
             gui::mainWindow.setLevelDbScan(CurrSrvr, glevel);
         }
         gui::mainWindow.setChangeGainFalse();
-
+        flog::warn("status_auto_level3 1 {0}!", status_auto_level3);
         running.store(true);
         _recording.store(false);
         restart_requested.store(false);
@@ -2698,7 +2853,16 @@ private:
             if (finalBw > VIEWBANDWICH)
                 finalBw = VIEWBANDWICH;
             gui::waterfall.setViewBandwidth(finalBw);
-            gui::waterfall.setViewOffset(gui::waterfall.vfos["Канал приймання"]->centerOffset); // center vfo on screen
+            auto itVfo = gui::waterfall.vfos.find("Канал приймання");
+            if (itVfo == gui::waterfall.vfos.end() || !itVfo->second)
+            {
+                flog::error("Scanner: VFO 'Канал приймання' not found or null. selectedVFO='{0}'",
+                            gui::waterfall.selectedVFO);
+            }
+            else
+            {
+                gui::waterfall.setViewOffset(itVfo->second->centerOffset); // center vfo on screen
+            }
         }
         // tuner::tune(tuningMode, gui::waterfall.selectedVFO, bm.frequency);
         flog::info("start() Scan3(), running={0},  bm.frequency {1}", running.load(), bm.frequency);
@@ -2706,13 +2870,18 @@ private:
         gui::mainWindow.setidOfList_scan(gui::mainWindow.getCurrServer(), selectedListId);
         gui::mainWindow.setUpdateMenuSnd6Scan(MAX_SERVERS, true);
 
+        flog::warn("status_auto_level3 2 {0}!", status_auto_level3);
+
         current = bm.frequency;
         // 2. Имитируем, что мы только что переключились и ждем стабилизации
         tuning = true;
         _Receiving = false;
         lastTuneTime = std::chrono::high_resolution_clock::now();
+        // flog::warn("status_auto_level3 3 {0}!", status_auto_level3);
 
         workerThread = std::thread(&ObservationManagerModule::worker, this);
+
+        // flog::warn("status_auto_level3 3 {0}!", status_auto_level3);
     }
 
     void stop()
@@ -2756,6 +2925,8 @@ private:
         // _Receiving = false;
         // tuning = false;
         _detected.store(false);
+
+        flog::warn("Starting worker {0}!");
 
         name = itbook->first;
         auto bm = itbook->second;
@@ -3277,10 +3448,8 @@ private:
     bool importBookmarks(std::string path, bool add)
     {
         if (add)
-        {
-            importBookmarks_add(path);
-            return true;
-        }
+            return importBookmarks_add(path); // Переход на добавление, если флаг true
+
         std::ifstream fs(path);
         if (!fs.is_open())
         {
@@ -3288,35 +3457,20 @@ private:
             return false;
         }
 
-        json importBookmarks;
+        json importBookmarksJson;
         try
         {
-            fs >> importBookmarks;
+            fs >> importBookmarksJson;
         }
         catch (const json::parse_error &e)
         {
             flog::error("Ошибка парсинга JSON: {0}", e.what());
             return false;
         }
-        if (!importBookmarks.is_object())
-        {
-            flog::error("Файл JSON должен быть объектом");
-            return false;
-        }
 
-        if (!importBookmarks["rx-mode"].is_string())
-        {
-            flog::error("Bookmark attribute is invalid ('rx-mode' not is_object)");
-            // return false;
-        }
-        if (importBookmarks["rx-mode"] != "scanning")
-        {
-            flog::error("Bookmark attribute is invalid ('rx-mode' must have the name 'scanning' {0})", importBookmarks["rx-mode"]);
-            return false;
-        }
-
+        // 1. Поиск имени списка в файле
         std::string NameList = "";
-        for (auto const [_name, bm] : importBookmarks.items())
+        for (auto const [_name, bm] : importBookmarksJson.items())
         {
             if (_name != "InstNum" && _name != "bank-name" && _name != "domain" && _name != "rx-mode" && _name != "time_created")
             {
@@ -3324,99 +3478,85 @@ private:
                 break;
             }
         }
-        flog::info("NameList = {0} ", NameList);
-        if (!importBookmarks[NameList].contains("bookmarks"))
+
+        if (NameList == "" || !importBookmarksJson[NameList].contains("bookmarks"))
         {
-            flog::error("File does not contains any bookmarks");
+            flog::error("File does not contain bookmarks");
             return false;
         }
 
-        if (!importBookmarks[NameList]["bookmarks"].is_object())
-        {
-            flog::error("Bookmark attribute is invalid");
-            return false;
-        }
-        json newList = json({});
+        // 2. Очистка текущего списка в конфиге и в памяти
         config.acquire();
+        json newList = json({});
         newList["showOnWaterfall"] = true;
         newList["bookmarks"] = json::object();
-        config.conf["lists"][NameList] = newList;
-        config.conf["selectedList"] = NameList;
-        config.conf["maxRecWaitTime"] = maxRecWaitTime;
-        config.conf["lingerTime"] = lingerTime;
+        config.conf["lists"][selectedListName] = newList; // Стираем старое в конфиге
         config.release(true);
 
-        refreshLists();
-        selectedListName = NameList;
-        loadByName(selectedListName);
-        // Load every bookmark
-        for (auto const [_name, bm] : importBookmarks[NameList]["bookmarks"].items())
+        bookmarks.clear(); // Стираем старое в памяти
+
+        // 3. Цикл с жестким ограничением
+        int count = 0;
+        for (auto const [_name, bm] : importBookmarksJson[NameList]["bookmarks"].items())
         {
-            if (bookmarks.find(_name) != bookmarks.end())
+            // !!! ВОТ ЭТО ИСПРАВЛЕНИЕ !!!
+            if (count >= MAX_COUNT_OF_DATA)
             {
-                flog::warn("Bookmark with the name '{0}' already exists in list, skipping", _name);
-                continue;
+                flog::warn("Import limit reached ({0}). Truncating.", MAX_COUNT_OF_DATA);
+                break; // Прерываем цикл, остальные частоты игнорируются
             }
+
             ObservationBookmark fbm;
             fbm.frequency = bm["frequency"];
             fbm.bandwidth = bm["bandwidth"];
             fbm.mode = bm["mode"];
-            fbm.level = bm["level"];
-            fbm.selected = false;
+            try
+            {
+                fbm.level = bm["level"];
+            }
+            catch (...)
+            {
+                fbm.level = -50;
+            }
             try
             {
                 fbm.Signal = bm["Signal"];
             }
-            catch (const std::exception &e)
+            catch (...)
             {
                 fbm.Signal = 0;
-                std::cerr << e.what() << '\n';
             }
+            fbm.selected = false;
 
             bookmarks[_name] = fbm;
+            count++;
         }
-        saveByName(selectedListName);
+
+        saveByName(selectedListName); // Сохраняем эти 64 элемента
         fs.close();
         return true;
     }
 
     bool importBookmarks_add(std::string path)
     {
-        // std::ifstream fs(path);
-        // json importBookmarks;
-        // fs >> importBookmarks;
         std::ifstream fs(path);
         if (!fs.is_open())
         {
             flog::error("Не удалось открыть файл: {0}", path);
             return false;
         }
-        json importBookmarks;
+        json importBookmarksJson;
         try
         {
-            fs >> importBookmarks;
+            fs >> importBookmarksJson;
         }
-        catch (const json::parse_error &e)
+        catch (...)
         {
-            flog::error("Ошибка парсинга JSON: {0}", e.what());
-            return false;
-        }
-        if (!importBookmarks.is_object())
-        {
-            flog::error("Файл JSON должен быть объектом");
             return false;
         }
 
-        if (importBookmarks["rx-mode"] != "scanning" || !importBookmarks["rx-mode"].is_string())
-        {
-            flog::error("Bookmark attribute is invalid ('rx-mode' must have the name 'scanning')");
-            return false;
-        }
-        std::string NameList = selectedListName;
         std::string currNameList = "";
-
-        flog::info("importBookmarks NameList = {0} ", NameList);
-        for (auto const [_name, bm] : importBookmarks.items())
+        for (auto const [_name, bm] : importBookmarksJson.items())
         {
             if (_name != "InstNum" && _name != "bank-name" && _name != "domain" && _name != "rx-mode" && _name != "time_created")
             {
@@ -3424,60 +3564,56 @@ private:
                 break;
             }
         }
-        if (!importBookmarks[currNameList].contains("bookmarks"))
-        {
-            flog::error("File does not contains any bookmarks");
+
+        if (currNameList == "" || !importBookmarksJson[currNameList].contains("bookmarks"))
             return false;
+
+        // Поиск свободного ID
+        int ibmName = 1;
+        while (bookmarks.find(std::to_string(ibmName)) != bookmarks.end())
+        {
+            ibmName++;
         }
 
-        if (!importBookmarks[currNameList]["bookmarks"].is_object())
+        // Цикл добавления
+        for (auto const [_name, bm] : importBookmarksJson[currNameList]["bookmarks"].items())
         {
-            flog::error("Bookmark attribute is invalid");
-            return false;
-        }
-
-        json newList = json({});
-
-        //        refreshLists();
-        //        selectedListName = NameList;
-        //        loadByName(selectedListName);
-        // Load every bookmark
-        int ibmName = 0;
-        for (int i = 1; i < 1000; i++)
-        {
-            std::string bmName = std::to_string(i);
-            if (bookmarks.find(bmName) == bookmarks.end())
+            // !!! ВОТ ЭТО ИСПРАВЛЕНИЕ !!!
+            // Проверяем ТЕКУЩИЙ размер карты bookmarks
+            if (bookmarks.size() >= MAX_COUNT_OF_DATA)
             {
-                ibmName = i;
-                break;
+                flog::warn("List is full ({0}). Cannot add more.", MAX_COUNT_OF_DATA);
+                break; // Если уже 64, выходим
             }
-        }
-        if (ibmName == 0)
-            ibmName = 1;
-        // flog::info("ibmName {0}", ibmName);
-        for (auto const [_name, bm] : importBookmarks[currNameList]["bookmarks"].items())
-        {
+
+            // Генерируем уникальное имя, если занято
             std::string bmName = std::to_string(ibmName);
-            if (bookmarks.find(bmName) != bookmarks.end())
+            while (bookmarks.find(bmName) != bookmarks.end())
             {
-                flog::warn("Bookmark with the name '{0}' already exists in list, skipping", _name);
-                continue;
+                ibmName++;
+                bmName = std::to_string(ibmName);
             }
+
             ObservationBookmark fbm;
             fbm.frequency = bm["frequency"];
             fbm.bandwidth = bm["bandwidth"];
             fbm.mode = bm["mode"];
-            fbm.level = bm["level"];
+            try
+            {
+                fbm.level = bm["level"];
+            }
+            catch (...)
+            {
+                fbm.level = -50;
+            }
             try
             {
                 fbm.Signal = bm["Signal"];
             }
-            catch (const std::exception &e)
+            catch (...)
             {
                 fbm.Signal = 0;
-                std::cerr << e.what() << '\n';
             }
-            // flog::info("NameList {0} , bmName {1}, fbm.frequency {2}", NameList, bmName, fbm.frequency);
             fbm.selected = false;
 
             bookmarks[bmName] = fbm;
@@ -3821,7 +3957,7 @@ private:
     const double scan_band = 12500.0; // Шаг сканирования в Гц
     int cnt_skip = 0;
     std::atomic<bool> restart_requested = false;
-    // std::mutex tuneMtx;
+    std::mutex classMtx;
 };
 
 MOD_EXPORT void _INIT_()
@@ -3831,7 +3967,7 @@ MOD_EXPORT void _INIT_()
     def["bookmarkDisplayMode"] = BOOKMARK_DISP_MODE_TOP;
     def["maxRecWaitTime"] = 10;
     def["lingerTime"] = 5;
-    def["glevel"] = -70;
+    def["glevel"] = -50;
 
     def["lists"]["General"]["showOnWaterfall"] = true;
     def["lists"]["General"]["bookmarks"] = json::object();

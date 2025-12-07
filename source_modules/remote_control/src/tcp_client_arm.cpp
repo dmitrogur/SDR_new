@@ -349,7 +349,7 @@ namespace server
             bool statAutoLevelSrch = true;
             bool statAutoLevelScan = true;
             bool statAutoLevelCtrl = true;
-            int SNRLevelDbSrch = -70;
+            int SNRLevelDbSrch = -50;
             bool status_AKFSrch = false;
             bool status_AKFCtrl = false;
             int maxRecWaitTimeCtrl = 5;
@@ -381,7 +381,7 @@ namespace server
             int setLevelDbSrch = 0;
             int setLevelDbScan = 0;
             int setLevelDbCtrl = 0;
-            int SNRLevelDbSrch = -70;
+            int SNRLevelDbSrch = -50;
             bool status_AKFSrch = false;
             bool status_AKFCtrl = false;
             bool UpdateStat = false;
@@ -740,13 +740,6 @@ namespace server
             }
             else if (_this->ib_pkt_hdr->type == PACKET_TYPE_SEARCH_STAT && statusServer == ARM_STATUS_FULL_CONTROL)
             { // SEARCH
-                /*
-                if (count != sizeof(FoundBookmark))
-                {
-                    flog::error("WORKER_INFO: count {0} != sizeof(FoundBookmark) {1}", count, sizeof(FoundBookmark));
-                    break;
-                }
-                */
                 {
                     std::lock_guard<std::mutex> lock(gui::waterfall.findedFreqMtx);
                     gui::waterfall.finded_freq.clear();
@@ -762,6 +755,183 @@ namespace server
                 }
                 flog::info("PACKET_TYPE_SEARCH_STAT. count {0}, getsizeOfbbuf_srch_stat {1}", count, gui::mainWindow.getsizeOfbbuf_srch_stat());
             }
+            // ====================================================================================
+            else if (_this->ib_pkt_hdr->type == PACKET_TYPE_SEARCH && statusServer > ARM_STATUS_NOT_CONTROL)
+            {
+                // SEARCH CONFIG from RPM
+                int msgSize = count;
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0)
+                    msgSize -= _this->ib_pkt_hdr->sizeOfExtension;
+
+                if (msgSize != (int)sizeof(msgSearch))
+                {
+                    flog::error("WORKER_INFO: PACKET_TYPE_SEARCH: msgSize {0} != sizeof(msgSearch) {1}",
+                                msgSize, sizeof(msgSearch));
+                    break;
+                }
+
+                memcpy(&msgSearch, &_this->ibuf[sizeof(InfoHeader)], sizeof(msgSearch));
+
+                // Расширение — списки поиска
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0 && !gui::mainWindow.getbutton_srch(_this->currSrv))
+                {
+                    /*
+                    int extSize = _this->ib_pkt_hdr->sizeOfExtension;
+                    try
+                    {
+                        std::vector<uint8_t> tempBuf(extSize);
+                        size_t dataOffset = sizeof(InfoHeader) + sizeof(msgSearch);
+                        memcpy(tempBuf.data(),
+                               &_this->ibuf[dataOffset],
+                               extSize);
+                        gui::mainWindow.setbbuf_srch(tempBuf.data(), extSize);
+                        gui::mainWindow.setUpdateListRcv5Srch(_this->currSrv, true);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        flog::error("WORKER_INFO: PACKET_TYPE_SEARCH alloc error: {0}", e.what());
+                    }
+                    */
+                }
+
+                if (msgSearch.UpdateMenu)
+                {
+                    flog::info("PACKET_TYPE_SEARCH (RPM->ARM). RCV. srv={0}, button_srch {1}, idOfList {2}, levelDb {3}, SNRlevelDb {4}, statAutoLevel {5}",
+                               _this->currSrv,
+                               msgSearch.button_srch,
+                               msgSearch.idOfList_srch,
+                               msgSearch.levelDb,
+                               msgSearch.SNRlevelDb,
+                               msgSearch.statAutoLevel);
+
+                    gui::mainWindow.setbutton_srch(_this->currSrv, msgSearch.button_srch);
+                    gui::mainWindow.setidOfList_srch(_this->currSrv, msgSearch.idOfList_srch);
+                    gui::mainWindow.setLevelDbSrch(_this->currSrv, msgSearch.levelDb);
+                    gui::mainWindow.setAuto_levelSrch(_this->currSrv, msgSearch.statAutoLevel);
+                    gui::mainWindow.setSNRLevelDb(_this->currSrv, msgSearch.SNRlevelDb);
+                    gui::mainWindow.setAKFInd(_this->currSrv, msgSearch.status_AKF);
+                    gui::mainWindow.setselectedLogicId(_this->currSrv, msgSearch.selectedLogicId);
+                    gui::mainWindow.setUpdateModule_srch(_this->currSrv, msgSearch.UpdateModule);
+                    gui::mainWindow.setUpdateMenuRcv5Srch(true);
+                    gui::mainWindow.setUpdateMenuSnd5Srch(_this->currSrv, false);
+                }
+            }
+            else if (_this->ib_pkt_hdr->type == PACKET_TYPE_SCAN && statusServer > ARM_STATUS_NOT_CONTROL)
+            {
+                int msgSize = count;
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0)
+                    msgSize -= _this->ib_pkt_hdr->sizeOfExtension;
+
+                if (msgSize < (int)sizeof(msgScan))
+                {
+                    flog::error("WORKER_INFO: PACKET_TYPE_SCAN: msgSize {0} < sizeof(msgScan) {1}",
+                                msgSize, sizeof(msgScan));
+                    break;
+                }
+
+                memcpy(&msgScan, &_this->ibuf[sizeof(InfoHeader)], sizeof(msgScan));
+
+                // Расширение — список частот
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0 && !gui::mainWindow.getbutton_scan(_this->currSrv))
+                {
+                    /*
+                    int extSize = _this->ib_pkt_hdr->sizeOfExtension;
+                    try
+                    {
+                        std::vector<uint8_t> tempBuf(extSize);
+                        size_t dataOffset = sizeof(InfoHeader) + sizeof(msgScan);
+                        memcpy(tempBuf.data(),
+                               &_this->ibuf[dataOffset],
+                               extSize);
+                        gui::mainWindow.setbbuf_scan(tempBuf.data(), extSize);
+                        gui::mainWindow.setUpdateListRcv6Scan(_this->currSrv, true);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        flog::error("WORKER_INFO: PACKET_TYPE_SCAN alloc error: {0}", e.what());
+                    }
+                    */
+                }
+
+                flog::info("PACKET_TYPE_SCAN (RPM->ARM). RCV. srv={0}, button_scan {1}, idOfList {2}, level {3}",
+                           _this->currSrv,
+                           msgScan.button_scan,
+                           msgScan.idOfList_scan,
+                           msgScan.level);
+
+                gui::mainWindow.setidOfList_scan(_this->currSrv, msgScan.idOfList_scan);
+
+                if (msgScan.UpdateMenu)
+                {
+                    gui::mainWindow.setbutton_scan(_this->currSrv, msgScan.button_scan);
+                    gui::mainWindow.setAuto_levelScan(_this->currSrv, msgScan.statAutoLevel);
+                    gui::mainWindow.setMaxRecWaitTime_scan(_this->currSrv, msgScan.maxRecWaitTime);
+                    gui::mainWindow.setMaxRecDuration_scan(_this->currSrv, msgScan.maxRecDuration);
+                    gui::mainWindow.setLevelDbScan(_this->currSrv, msgScan.level);
+                    gui::mainWindow.setUpdateModule_scan(_this->currSrv, msgScan.UpdateModule);
+                    gui::mainWindow.setUpdateMenuRcv6Scan(true);
+                    gui::mainWindow.setUpdateMenuSnd6Scan(_this->currSrv, false);
+                }
+            }
+            else if (_this->ib_pkt_hdr->type == PACKET_TYPE_CTRL && statusServer > ARM_STATUS_NOT_CONTROL)
+            {
+                int msgSize = count;
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0)
+                    msgSize -= _this->ib_pkt_hdr->sizeOfExtension;
+
+                if (msgSize != (int)sizeof(msgCTRL))
+                {
+                    flog::error("WORKER_INFO: PACKET_TYPE_CTRL: msgSize {0} != sizeof(msgCTRL) {1}",
+                                msgSize, sizeof(msgCTRL));
+                    break;
+                }
+
+                memcpy(&msgCTRL, &_this->ibuf[sizeof(InfoHeader)], sizeof(msgCTRL));
+
+                // Расширение — список CTRL-каналов
+                if (_this->ib_pkt_hdr->sizeOfExtension > 0)
+                {
+                    /*
+                    int extSize = _this->ib_pkt_hdr->sizeOfExtension;
+                    try
+                    {
+                        std::vector<uint8_t> tempBuf(extSize);
+                        size_t dataOffset = sizeof(InfoHeader) + sizeof(msgCTRL);
+                        memcpy(tempBuf.data(),
+                               &_this->ibuf[dataOffset],
+                               extSize);
+                        gui::mainWindow.setbbuf_ctrl(tempBuf.data(), extSize);
+                        gui::mainWindow.setUpdateListRcv7Ctrl(_this->currSrv, true);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        flog::error("WORKER_INFO: PACKET_TYPE_CTRL alloc error: {0}", e.what());
+                    }
+                    */
+                }
+                
+                flog::info("PACKET_TYPE_CTRL (RPM->ARM). RCV. srv={0}, button_ctrl {1}, idOfList {2}, level {3}",
+                           _this->currSrv,
+                           msgCTRL.button_ctrl,
+                           msgCTRL.idOfList_ctrl,
+                           msgCTRL.level);
+
+                gui::mainWindow.setidOfList_ctrl(_this->currSrv, msgCTRL.idOfList_ctrl);
+
+                if (msgCTRL.UpdateMenu)
+                {
+                    gui::mainWindow.setbutton_ctrl(_this->currSrv, msgCTRL.button_ctrl);
+                    gui::mainWindow.setMaxRecWaitTime_ctrl(_this->currSrv, msgCTRL.maxRecWaitTime);
+                    gui::mainWindow.setAuto_levelCtrl(_this->currSrv, msgCTRL.statAutoLevel);
+                    gui::mainWindow.setAKFInd_ctrl(_this->currSrv, msgCTRL.status_AKF);
+                    gui::mainWindow.setflag_level_ctrl(_this->currSrv, msgCTRL.flag_level);
+                    gui::mainWindow.setLevelDbCtrl(_this->currSrv, msgCTRL.level);
+                    gui::mainWindow.setUpdateModule_ctrl(_this->currSrv, msgCTRL.UpdateModule);
+                    gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+                    gui::mainWindow.setUpdateMenuSnd7Ctrl(_this->currSrv, false);
+                }
+            }
+            // ================================================================
             else if (count == sizeof(msgMainStat) && _this->ib_pkt_hdr->type == PACKET_TYPE_MAIN_STAT && !gui::mainWindow.getUpdateMenuSnd())
             { // MAIN
                 // && statusServer > ARM_STATUS_NOT_CONTROL && !gui::mainWindow.getUpdateMenuRcv0Main(_this->currSrv)
@@ -793,10 +963,6 @@ namespace server
                                 gui::mainWindow.setidOfList_srch(currSrv, msgMainStat.idOfList_srch);
                                 // gui::mainWindow.setUpdateMenuRcv5Srch(true);
                             }
-                            if (msgMainStat.setLevelDbSrch != gui::mainWindow.getLevelDbSrch(currSrv))
-                            {
-                                gui::mainWindow.setLevelDbSrch(currSrv, msgMainStat.setLevelDbSrch);
-                            }
                         }
                         else
                         {
@@ -818,10 +984,6 @@ namespace server
                                 gui::mainWindow.setidOfList_scan(currSrv, msgMainStat.idOfList_scan);
                                 // gui::mainWindow.setUpdateMenuRcv6Scan(true);
                             }
-                            if (msgMainStat.setLevelDbScan != gui::mainWindow.getLevelDbScan(currSrv))
-                            {
-                                gui::mainWindow.setLevelDbScan(currSrv, msgMainStat.setLevelDbScan);
-                            }
                         }
                         else
                         {
@@ -831,8 +993,6 @@ namespace server
                     // }
 
                     gui::mainWindow.setbutton_ctrl(currSrv, msgMainStat.control);
-                    // if (!gui::mainWindow.getUpdateMenuSnd7Ctrl(currSrv))
-                    //{
                     if (msgMainStat.control)
                     {
                         if (statusServer == ARM_STATUS_FULL_CONTROL)
@@ -842,19 +1002,27 @@ namespace server
                                 gui::mainWindow.setidOfList_ctrl(currSrv, msgMainStat.idOfList_control);
                                 // gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
                             }
-                            if (msgMainStat.setLevelDbCtrl != gui::mainWindow.getLevelDbCtrl(currSrv))
-                            {
-                                gui::mainWindow.setLevelDbCtrl(currSrv, msgMainStat.setLevelDbCtrl);
-                            }
                         }
                     }
-                    // }
-                       
+
+                    if (msgMainStat.search && msgMainStat.setLevelDbSrch != gui::mainWindow.getLevelDbSrch(currSrv))
+                    {
+                        gui::mainWindow.setLevelDbSrch(currSrv, msgMainStat.setLevelDbSrch);
+                    }
+                    if (msgMainStat.scan && msgMainStat.setLevelDbScan != gui::mainWindow.getLevelDbScan(currSrv))
+                    {
+                        gui::mainWindow.setLevelDbScan(currSrv, msgMainStat.setLevelDbScan);
+                    }
+                    if (msgMainStat.control && msgMainStat.setLevelDbCtrl != gui::mainWindow.getLevelDbCtrl(currSrv))
+                    {
+                        gui::mainWindow.setLevelDbCtrl(currSrv, msgMainStat.setLevelDbCtrl);
+                    }
+
                     if (msgMainStat.recording == true) // recording
                         gui::mainWindow.setServerRecordingStart(currSrv);
                     else
                         gui::mainWindow.setServerRecordingStop(currSrv);
-                        
+
                     gui::mainWindow.setServerPlayState(currSrv, msgMainStat.playing);
                     gui::mainWindow.setServerIsNotPlaying(currSrv, msgMainStat.isNotPlaying);
                     gui::mainWindow.setServersFreq(currSrv, (msgMainStat.freq + msgMainStat.offset));
@@ -974,104 +1142,145 @@ namespace server
             else if (gui::mainWindow.getUpdateMenuSnd5Srch(_this->currSrv) && _thisNetOK)
             { // SEARCH
                 msgSearch.selectedLogicId = gui::mainWindow.getselectedLogicId(_this->currSrv);
-                msgSearch.idOfList_srch = gui::mainWindow.getidOfList_srch(_this->currSrv);
-                msgSearch.button_srch = gui::mainWindow.getbutton_srch(_this->currSrv);
-                msgSearch.levelDb = gui::mainWindow.getLevelDbSrch(_this->currSrv);
-                msgSearch.SNRlevelDb = gui::mainWindow.getSNRLevelDb(_this->currSrv);
-                msgSearch.status_AKF = gui::mainWindow.getAKFInd(_this->currSrv);
-                msgSearch.UpdateModule = gui::mainWindow.getUpdateModule_srch(_this->currSrv);
-                msgSearch.UpdateLists = gui::mainWindow.getUpdateLists_srch();
-                msgSearch.statAutoLevel = gui::mainWindow.getAuto_levelSrch(_this->currSrv);
-                msgSearch.UpdateMenu = true;
-                flog::info("PACKET_TYPE_SEARCH. Send 2.  msgSearch.idOfList_srch  {0}, ib_pkt_hdr->sizeOfExtension {1}, button_srch {2}, currSrv {3}, getAutoLevel {4}", msgSearch.idOfList_srch, _this->ib_pkt_hdr->sizeOfExtension, msgSearch.button_srch, _this->currSrv, msgSearch.statAutoLevel);
-                memcpy(&_this->ibuf[sizeof(InfoHeader)], (uint8_t *)&msgSearch, sizeof(msgSearch));
-                _this->ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgSearch);
-                _this->ib_pkt_hdr->type = PACKET_TYPE_SEARCH;
+                msgSearch.idOfList_srch  = gui::mainWindow.getidOfList_srch(_this->currSrv);
+                msgSearch.button_srch    = gui::mainWindow.getbutton_srch(_this->currSrv);
+                msgSearch.levelDb        = gui::mainWindow.getLevelDbSrch(_this->currSrv);
+                msgSearch.SNRlevelDb     = gui::mainWindow.getSNRLevelDb(_this->currSrv);
+                msgSearch.status_AKF     = gui::mainWindow.getAKFInd(_this->currSrv);
+                msgSearch.UpdateModule   = gui::mainWindow.getUpdateModule_srch(_this->currSrv);
+                msgSearch.UpdateLists    = gui::mainWindow.getUpdateLists_srch();
+                msgSearch.statAutoLevel  = gui::mainWindow.getAuto_levelSrch(_this->currSrv);
+                msgSearch.UpdateMenu     = true;
 
+                // === 1. Размер extension ===
+                int extSize = 0;
                 if (msgSearch.UpdateLists)
+                    extSize = gui::mainWindow.getsizeOfbbuf_srch();
+
+                // === 2. Проверка на переполнение ibuf ===
+                size_t totalPacketSize = sizeof(InfoHeader) + sizeof(msgSearch) + (size_t)extSize;
+                if (totalPacketSize > MAX_INFO_BUFFER_SIZE)
                 {
-                    flog::info("PACKET_TYPE_SEARCH gui::mainWindow.getsizeOfbbuf_srch() = {0}", gui::mainWindow.getsizeOfbbuf_srch());
-                    _this->ib_pkt_hdr->sizeOfExtension = gui::mainWindow.getsizeOfbbuf_srch();
-                    if (_this->ib_pkt_hdr->sizeOfExtension > 0)
-                    {
-                        memcpy(&_this->ibuf[_this->ib_pkt_hdr->size], (void *)gui::mainWindow.getbbuf_srch(), _this->ib_pkt_hdr->sizeOfExtension);
-                    }
-                    _this->ib_pkt_hdr->size = _this->ib_pkt_hdr->size + _this->ib_pkt_hdr->sizeOfExtension;
+                    flog::error("PACKET_TYPE_SEARCH: totalSize {0} > MAX_INFO_BUFFER_SIZE {1}, drop extension",
+                                totalPacketSize, MAX_INFO_BUFFER_SIZE);
+                    msgSearch.UpdateLists          = false;
+                    _this->ib_pkt_hdr->sizeOfExtension = 0;
+                    extSize                         = 0;
+                }
+
+                flog::info("PACKET_TYPE_SEARCH. Send 2. msgSearch.idOfList_srch {0}, extSize {1}, button_srch {2}, currSrv {3}, autoLevel {4}",
+                           msgSearch.idOfList_srch, extSize, msgSearch.button_srch, _this->currSrv, msgSearch.statAutoLevel);
+
+                memcpy(&_this->ibuf[sizeof(InfoHeader)], (uint8_t *)&msgSearch, sizeof(msgSearch));
+                _this->ib_pkt_hdr->type = PACKET_TYPE_SEARCH;
+                _this->ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgSearch);
+
+                if (msgSearch.UpdateLists && extSize > 0)
+                {
+                    _this->ib_pkt_hdr->sizeOfExtension = extSize;
+                    memcpy(&_this->ibuf[_this->ib_pkt_hdr->size], (void *)gui::mainWindow.getbbuf_srch(), extSize);
+                    _this->ib_pkt_hdr->size += extSize;
                 }
                 else
                 {
                     _this->ib_pkt_hdr->sizeOfExtension = 0;
                 }
-                flog::info("PACKET_TYPE_SEARCH. Send. ib_pkt_hdr->sizeOfExtension {0}, all_size {1}", _this->ib_pkt_hdr->sizeOfExtension, (_this->ib_pkt_hdr->sizeOfExtension + sizeof(InfoHeader) + sizeof(msgSearch)));
+
+                flog::info("PACKET_TYPE_SEARCH. Send. sizeOfExtension {0}, total_size {1}",
+                           _this->ib_pkt_hdr->sizeOfExtension, _this->ib_pkt_hdr->size);
+
                 gui::mainWindow.setUpdateMenuSnd5Srch(_this->currSrv, false);
             }
             else if (gui::mainWindow.getUpdateMenuSnd6Scan(_this->currSrv) && _thisNetOK)
             { // SCAN
-                msgScan.idOfList_scan = gui::mainWindow.getidOfList_scan(_this->currSrv);
-                msgScan.button_scan = gui::mainWindow.getbutton_scan(_this->currSrv);
-                msgScan.maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_scan(_this->currSrv);
-                msgScan.maxRecDuration = gui::mainWindow.getMaxRecDuration_scan(_this->currSrv);
-                msgScan.flag_level = true; // gui::mainWindow.getflag_level_scan(_this->currSrv);
-                msgScan.level = gui::mainWindow.getLevelDbScan(_this->currSrv);
-                msgScan.statAutoLevel = gui::mainWindow.getAuto_levelScan(_this->currSrv);
-                msgScan.UpdateModule = gui::mainWindow.getUpdateModule_scan(_this->currSrv);
-                msgScan.UpdateLists = gui::mainWindow.getUpdateLists_scan();
-                msgScan.UpdateMenu = true;
-                _this->ib_pkt_hdr->type = PACKET_TYPE_SCAN;
-                memcpy(&_this->ibuf[sizeof(InfoHeader)], (uint8_t *)&msgScan, sizeof(msgScan));
-                _this->ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgScan);
-                flog::info("PACKET_TYPE_SCAN. Send.  msgScan.idOfList_scan  {0}, ib_pkt_hdr->size {1}, ib_pkt_hdr->sizeOfExtension {2}, msgScan.button_scan {3}, _this->currSrv {4}", msgScan.idOfList_scan, _this->ib_pkt_hdr->size, _this->ib_pkt_hdr->sizeOfExtension, msgScan.button_scan, _this->currSrv);
+                msgScan.idOfList_scan   = gui::mainWindow.getidOfList_scan(_this->currSrv);
+                msgScan.button_scan     = gui::mainWindow.getbutton_scan(_this->currSrv);
+                msgScan.maxRecWaitTime  = gui::mainWindow.getMaxRecWaitTime_scan(_this->currSrv);
+                msgScan.maxRecDuration  = gui::mainWindow.getMaxRecDuration_scan(_this->currSrv);
+                msgScan.flag_level      = true;
+                msgScan.level           = gui::mainWindow.getLevelDbScan(_this->currSrv);
+                msgScan.statAutoLevel   = gui::mainWindow.getAuto_levelScan(_this->currSrv);
+                msgScan.UpdateModule    = gui::mainWindow.getUpdateModule_scan(_this->currSrv);
+                msgScan.UpdateLists     = gui::mainWindow.getUpdateLists_scan();
+                msgScan.UpdateMenu      = true;
+
+                // === 1. Вычисляем размеры ===
+                int extSize = 0;
                 if (msgScan.UpdateLists)
+                    extSize = gui::mainWindow.getsizeOfbbuf_scan();
+
+                // === 2. Проверяем, влезет ли всё в ibuf ===
+                size_t totalPacketSize = sizeof(InfoHeader) + sizeof(msgScan) + (size_t)extSize;
+                if (totalPacketSize > MAX_INFO_BUFFER_SIZE)
                 {
-                    _this->ib_pkt_hdr->sizeOfExtension = gui::mainWindow.getsizeOfbbuf_scan();
-                    if (_this->ib_pkt_hdr->sizeOfExtension > 0)
-                    {
-                        memcpy(&_this->ibuf[_this->ib_pkt_hdr->size], (void *)gui::mainWindow.getbbuf_scan(), _this->ib_pkt_hdr->sizeOfExtension);
-                    }
-                    _this->ib_pkt_hdr->size = _this->ib_pkt_hdr->size + _this->ib_pkt_hdr->sizeOfExtension;
+                    flog::error("PACKET_TYPE_SCAN: totalSize {0} > MAX_INFO_BUFFER_SIZE {1}, drop packet",
+                                totalPacketSize, MAX_INFO_BUFFER_SIZE);
+                    gui::mainWindow.setUpdateMenuSnd6Scan(_this->currSrv, false);
                 }
                 else
                 {
-                    _this->ib_pkt_hdr->sizeOfExtension = 0;
+                    // === 3. Формируем заголовок и тело ===
+                    _this->ib_pkt_hdr->type = PACKET_TYPE_SCAN;
+
+                    memcpy(&_this->ibuf[sizeof(InfoHeader)], (uint8_t *)&msgScan, sizeof(msgScan));
+                    _this->ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgScan);
+
+                    // === 4. Добавляем расширение (списки частот) ===
+                    if (msgScan.UpdateLists && extSize > 0)
+                    {
+                        _this->ib_pkt_hdr->sizeOfExtension = extSize;
+                        memcpy(&_this->ibuf[_this->ib_pkt_hdr->size], (void *)gui::mainWindow.getbbuf_scan(), extSize);
+                        _this->ib_pkt_hdr->size += extSize;
+                    }
+                    else
+                    {
+                        _this->ib_pkt_hdr->sizeOfExtension = 0;
+                    }
+
+                    flog::info("PACKET_TYPE_SCAN. Send. idOfList {0}, size {1}, ext {2}",
+                               msgScan.idOfList_scan, _this->ib_pkt_hdr->size, _this->ib_pkt_hdr->sizeOfExtension);
+
+                    gui::mainWindow.setUpdateMenuSnd6Scan(_this->currSrv, false);
                 }
-                flog::info("PACKET_TYPE_SCAN. Send.  msgScan.idOfList_scan  {0}, ib_pkt_hdr->size {1}, ib_pkt_hdr->sizeOfExtension {2}, all_size {3}", msgScan.idOfList_scan, _this->ib_pkt_hdr->size, _this->ib_pkt_hdr->sizeOfExtension, (_this->ib_pkt_hdr->sizeOfExtension + sizeof(InfoHeader) + sizeof(msgScan)));
-                gui::mainWindow.setUpdateMenuSnd6Scan(_this->currSrv, false);
-            }
-            else if (gui::mainWindow.getUpdateMenuSnd7Ctrl(_this->currSrv) && _thisNetOK) //  && !gui::mainWindow.getFirstStart_ctrl(_this->currSrv)
-            { // CTRL
+            }                        
+            else if (gui::mainWindow.getUpdateMenuSnd7Ctrl(_this->currSrv) && _thisNetOK) // CTRL
+            {
                 msgCTRL.idOfList_ctrl = gui::mainWindow.getidOfList_ctrl(_this->currSrv);
                 msgCTRL.button_ctrl = gui::mainWindow.getbutton_ctrl(_this->currSrv);
                 msgCTRL.flag_level = gui::mainWindow.getflag_level_ctrl(_this->currSrv);
-                msgCTRL.level = gui::mainWindow.getLevelDbCtrl(_this->currSrv); // gui::mainWindow.getlevel_ctrl(_this->currSrv);
+                msgCTRL.level = gui::mainWindow.getLevelDbCtrl(_this->currSrv);
                 msgCTRL.UpdateModule = gui::mainWindow.getUpdateModule_ctrl(_this->currSrv);
-                msgCTRL.UpdateLists = gui::mainWindow.getUpdateListRcv7Ctrl(_this->currSrv);
                 msgCTRL.maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_ctrl(_this->currSrv);
                 msgCTRL.statAutoLevel = gui::mainWindow.getAuto_levelCtrl(_this->currSrv);
                 msgCTRL.status_AKF = gui::mainWindow.getAKFInd_ctrl(_this->currSrv);
 
+                // ВАЖНО: решаем, есть ли списки, по реальному размеру буфера, а не по флагу
+                int extSize = gui::mainWindow.getsizeOfbbuf_ctrl();
+                msgCTRL.UpdateLists = (extSize > 0);
+
                 msgCTRL.UpdateMenu = true;
+
                 _this->ib_pkt_hdr->type = PACKET_TYPE_CTRL;
-                memcpy(&_this->ibuf[sizeof(InfoHeader)], (uint8_t *)&msgCTRL, sizeof(msgCTRL));
                 _this->ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgCTRL);
-                flog::info("PACKET_TYPE_CTRL {0}. Send.  msgCTRL.idOfList_ctrl {1}, msgCTRL.maxWaitTime  {2}, msgCTRL.level {3}, msgCTRL.button_ctrl {4}, msgCTRL.UpdateLists {5}, idOfList = {6}!", _this->currSrv, msgCTRL.idOfList_ctrl, msgCTRL.maxRecWaitTime, msgCTRL.level, msgCTRL.button_ctrl, msgCTRL.UpdateLists, gui::mainWindow.getidOfList_ctrl(1));
+                _this->ib_pkt_hdr->sizeOfExtension = 0;
 
-                if (msgCTRL.UpdateLists)
+                memcpy(&_this->ibuf[sizeof(InfoHeader)],
+                       (uint8_t *)&msgCTRL,
+                       sizeof(msgCTRL));
+
+                if (msgCTRL.UpdateLists && extSize > 0)
                 {
-                    _this->ib_pkt_hdr->sizeOfExtension = gui::mainWindow.getsizeOfbbuf_ctrl();
-                    if (_this->ib_pkt_hdr->sizeOfExtension > 0)
-                    {
-                        memcpy(&_this->ibuf[_this->ib_pkt_hdr->size], (void *)gui::mainWindow.getbbuf_ctrl(), _this->ib_pkt_hdr->sizeOfExtension);
-                    }
-                    _this->ib_pkt_hdr->size = _this->ib_pkt_hdr->size + _this->ib_pkt_hdr->sizeOfExtension;
-                }
-                else
-                {
-                    _this->ib_pkt_hdr->sizeOfExtension = 0;
+                    _this->ib_pkt_hdr->sizeOfExtension = extSize;
+                    memcpy(&_this->ibuf[_this->ib_pkt_hdr->size],
+                           (void *)gui::mainWindow.getbbuf_ctrl(),
+                           extSize);
+                    _this->ib_pkt_hdr->size += extSize;
                 }
 
-                // _this->ib_pkt_hdr->sizeOfExtension = 0;
-                flog::info("CTRL. Send.  msgCTRL.idOfList_ctrl  {0}, ib_pkt_hdr->size {1}, ib_pkt_hdr->sizeOfExtension {2}, all_size {3}", msgCTRL.idOfList_ctrl, _this->ib_pkt_hdr->size, _this->ib_pkt_hdr->sizeOfExtension, (_this->ib_pkt_hdr->sizeOfExtension + sizeof(InfoHeader) + sizeof(msgCTRL)));
-                gui::mainWindow.setUpdateListRcv7Ctrl(_this->currSrv, false);
+                flog::info("CTRL. Send. srv={0}, idOfList_ctrl={1}, size={2}, ext={3}, button_ctrl={4}",
+                            _this->currSrv, msgCTRL.idOfList_ctrl, _this->ib_pkt_hdr->size, _this->ib_pkt_hdr->sizeOfExtension, msgCTRL.button_ctrl);
+
+                // НЕ трогаем здесь UpdateListRcv7Ctrl — его использует модуль Спостереження для своей логики
                 gui::mainWindow.setUpdateMenuSnd7Ctrl(_this->currSrv, false);
             }
             else if (statusServer > ARM_STATUS_NOT_CONTROL)

@@ -91,6 +91,9 @@ namespace ImGui {
 
         void init();
 
+        void loadSearchBlacklistFromFile(const std::string &dir);
+        
+
         void draw();
         float* getFFTBuffer();
         void pushFFT();
@@ -125,8 +128,8 @@ namespace ImGui {
         void setWaterfallMax(float max);
         float getWaterfallMax();
 
-        void setZoom(double zoomLevel);
-        void setOffset(double zoomOffset);
+        // void setZoom(double zoomLevel);
+        // void setOffset(double zoomOffset);
 
         void autoRange();
 
@@ -254,15 +257,16 @@ namespace ImGui {
             std::time_t ftime;
             // int signal;
         };
-
+        void UpdateBlackList(const std::vector<SkipFoundBookmark> &items);
+        
         FoundBookmark addFreq;
 
         std::map<double, FoundBookmark> finded_freq;
         std::map<double, FoundBookmark> finded_freq_copy;
         std::mutex findedFreqMtx;
-        std::mutex skipFreqMutex;
 
         std::map<double, SkipFoundBookmark> skip_finded_freq;
+        std::mutex skipFreqMutex;
         std::string selectedListName = "";
         unsigned int _count_Bookmark = 0;
         bool scan2_running = false;
@@ -288,6 +292,7 @@ namespace ImGui {
         void exportBookmarks(std::string path);
         bool importBookmarks(std::string path, bool val);
 
+        
         bool oldwaterfallVisible = 0;
         json rez_exportedBookmarks;
         bool rez_importOpen1 = false;
@@ -428,5 +433,7 @@ namespace ImGui {
         int searchListId[MAX_SERVERS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
         int scanListId[MAX_SERVERS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
         int ctrlListId[MAX_SERVERS] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
+        // skip_finded_freq blacklistPerInstance[MAX_SERVERS];
     };
 };

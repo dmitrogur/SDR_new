@@ -35,7 +35,7 @@ public:
     AudioSourceModule(std::string name) {
         this->name = name;
 
-        sampleRate = 48000.0;
+        sampleRate = 8000.0;
 
         handler.ctx = this;
         handler.selectHandler = menuSelected;

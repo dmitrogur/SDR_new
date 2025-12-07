@@ -161,9 +161,9 @@ namespace ImGui
 {
     WaterFall::WaterFall()
     {
-        fftMin = -70.0;
+        fftMin = -20.0;
         fftMax = 0.0;
-        waterfallMin = -70.0;
+        waterfallMin = -20.0;
         waterfallMax = 0.0;
         FFTAreaHeight = 300;
         newFFTAreaHeight = FFTAreaHeight;
@@ -248,6 +248,9 @@ namespace ImGui
 
             int mode = recv["mode"];
             selectedMode[ch] = mode;
+            flog::warn("[WF] selectedMode[{0}] {1}", ch, selectedMode[ch]);
+            if (selectedMode[ch] > 0 && selectedMode[ch] < 5)
+                gui::mainWindow.setSelectedMode(ch, selectedMode[ch]);
 
             // Проверка и установка bank, если mode = 1, 2, 3
             if ((mode == 1 || mode == 2 || mode == 3) &&
@@ -287,12 +290,45 @@ namespace ImGui
             std::cerr << e.what() << '\n';
             pathValid = core::configManager.getPath() + "/Banks";
         }
-
+        /*
         std::string expname = pathValid + "/black_list.json";
         if (std::filesystem::exists(expname))
         {
             flog::info("expname '{0}'", expname);
             importBookmarks(expname, true);
+        }
+        else
+        {
+            std::cout << "Файл не найден.\n";
+        }
+        */
+        loadSearchBlacklistFromFile(pathValid);
+    }
+
+    void WaterFall::UpdateBlackList(const std::vector<SkipFoundBookmark> &items)
+    {
+        std::lock_guard<std::mutex> lock(skipFreqMutex);
+
+        skip_finded_freq.clear();
+        _count_Bookmark = 0;
+
+        for (const auto &fbm : items)
+        {
+            double dfrec = fbm.frequency;
+            skip_finded_freq[dfrec] = fbm;
+            ++_count_Bookmark;
+        }
+
+        flog::info("UpdateBlackList: loaded {0} entries into skip_finded_freq", _count_Bookmark);
+    }
+
+    void WaterFall::loadSearchBlacklistFromFile(const std::string &dir)
+    {
+        std::string expname = dir + "/black_list.json";
+        if (std::filesystem::exists(expname))
+        {
+            flog::info("expname '{0}'", expname);
+            importBookmarks(expname, true); // как и было
         }
         else
         {
@@ -1326,44 +1362,45 @@ namespace ImGui
         window->DrawList->AddRectFilled(widgetPos, widgetEndPos, bg);
         window->DrawList->AddRect(widgetPos, widgetEndPos, IM_COL32(50, 50, 50, 255), 0.0, 0, style::uiScale);
         window->DrawList->AddLine(ImVec2(widgetPos.x, freqAreaMax.y), ImVec2(widgetPos.x + widgetSize.x, freqAreaMax.y), IM_COL32(50, 50, 50, 255), style::uiScale);
-
-        if (!gui::mainWindow.lockWaterfallControls)
+        if (gui::mainWindow.getStopMenuUI() == false)
         {
-            inputHandled = false;
-            InputHandlerArgs args;
-            args.fftRectMin = fftAreaMin;
-            args.fftRectMax = fftAreaMax;
-            args.freqScaleRectMin = freqAreaMin;
-            args.freqScaleRectMax = freqAreaMax;
-            args.waterfallRectMin = wfMin;
-            args.waterfallRectMax = wfMax;
-            args.lowFreq = lowerFreq;
-            args.highFreq = upperFreq;
-            args.freqToPixelRatio = (double)dataWidth / viewBandwidth;
-            args.pixelToFreqRatio = viewBandwidth / (double)dataWidth;
-            onInputProcess.emit(args);
-            if (!inputHandled)
+
+            if (!gui::mainWindow.lockWaterfallControls)
             {
-                processInputs();
+                inputHandled = false;
+                InputHandlerArgs args;
+                args.fftRectMin = fftAreaMin;
+                args.fftRectMax = fftAreaMax;
+                args.freqScaleRectMin = freqAreaMin;
+                args.freqScaleRectMax = freqAreaMax;
+                args.waterfallRectMin = wfMin;
+                args.waterfallRectMax = wfMax;
+                args.lowFreq = lowerFreq;
+                args.highFreq = upperFreq;
+                args.freqToPixelRatio = (double)dataWidth / viewBandwidth;
+                args.pixelToFreqRatio = viewBandwidth / (double)dataWidth;
+                onInputProcess.emit(args);
+                if (!inputHandled)
+                {
+                    processInputs();
+                }
+            }
+            updateAllVFOs(true);
+            if (fftVisible)
+            {
+                drawFFT();
+            }
+            if (waterfallVisible)
+            {
+                drawWaterfall();
+            }
+
+            drawVFOs();
+            if (bandplan != NULL && bandplanVisible)
+            {
+                drawBandPlan();
             }
         }
-
-        updateAllVFOs(true);
-        if (fftVisible)
-        {
-            drawFFT();
-        }
-        if (waterfallVisible)
-        {
-            drawWaterfall();
-        }
-
-        drawVFOs();
-        if (bandplan != NULL && bandplanVisible)
-        {
-            drawBandPlan();
-        }
-
         int shift = 0;
         if (radioMode == 0 || radioMode == 1)
         {
@@ -1801,7 +1838,7 @@ namespace ImGui
                         // 2. Теперь выполняем весь цикл под защитой.
                         for (double dfrec : selectedNames)
                         {
-                            //std::lock_guard<std::mutex> lock(gui::waterfall.findedFreqMtx);
+                            // std::lock_guard<std::mutex> lock(gui::waterfall.findedFreqMtx);
                             auto it = finded_freq.find(dfrec);
                             if (it != finded_freq.end())
                             {
@@ -2333,9 +2370,11 @@ namespace ImGui
                     if (Runnung)
                         ImGui::BeginDisabled();
                     ImGui::SetNextItemWidth(_width);
+
                     if (ImGui::Combo(("##arm1_mode" + std::to_string(CHNL)).c_str(), &selectedMode[CHNL], ModeTxt.c_str()))
                     {
                         flog::info("       selectedMode[{0}] {1} ", CHNL, selectedMode[CHNL]);
+                        core::configManager.conf["receivers"][CHNL]["mode"] = selectedMode[CHNL];
                         gui::mainWindow.setSelectedMode(CHNL, selectedMode[CHNL]);
                     }
                     if (selectedMode[CHNL] == 1)
@@ -2378,7 +2417,7 @@ namespace ImGui
                                 gui::mainWindow.setServerRecordingStart(CHNL);
                                 gui::mainWindow.setUpdateMenuSnd0Main(CHNL, true);
                                 core::configManager.acquire();
-                                core::configManager.conf["receivers"][CHNL]["mode"] = selectedMode[CHNL];
+                                core::configManager.conf["receivers"][CHNL]["mode"] = 0;
                                 core::configManager.conf["receivers"][CHNL]["bank"] = 0;
                                 core::configManager.release(true);
                             }
@@ -2415,7 +2454,7 @@ namespace ImGui
                                     gui::mainWindow.setUpdateMenuSnd0Main(CHNL, true);
                                     flog::info("    SET searchListId[{0}] = {1}, srch {1}", CHNL, searchListId[CHNL], gui::mainWindow.getbutton_srch(CHNL));
                                     core::configManager.acquire();
-                                    core::configManager.conf["receivers"][CHNL]["mode"] = selectedMode[CHNL];
+                                    core::configManager.conf["receivers"][CHNL]["mode"] = 1;
                                     core::configManager.conf["receivers"][CHNL]["bank"] = searchListId[CHNL];
                                     core::configManager.release(true);
                                 }
@@ -2442,7 +2481,7 @@ namespace ImGui
                                     gui::mainWindow.setUpdateMenuSnd0Main(CHNL, true);
                                     flog::info("    SET scanListId[{0}] = {1}, scan {1}", CHNL, scanListId[CHNL], gui::mainWindow.getbutton_scan(CHNL));
                                     core::configManager.acquire();
-                                    core::configManager.conf["receivers"][CHNL]["mode"] = selectedMode[CHNL];
+                                    core::configManager.conf["receivers"][CHNL]["mode"] = 2;
                                     core::configManager.conf["receivers"][CHNL]["bank"] = scanListId[CHNL];
                                     core::configManager.release(true);
                                 }
@@ -2460,6 +2499,9 @@ namespace ImGui
                             }
                             else
                             {
+                                // bool _empty = ((_this->bookmarks_size == 0) ? true : false);
+                                // if (_empty)
+                                //    ImGui::BeginDisabled();
                                 if (ImGui::Button(("СТАРТ##mode_ctrl_start" + std::to_string(CHNL)).c_str(), ImVec2(menuWidth, 0)))
                                 {
                                     gui::mainWindow.setbutton_ctrl(CHNL, true);
@@ -2469,7 +2511,7 @@ namespace ImGui
                                     gui::mainWindow.setUpdateMenuSnd0Main(CHNL, true);
                                     flog::info("    SET ctrlListId[{0}] = {1}, ctrl {2}", CHNL, ctrlListId[CHNL], gui::mainWindow.getbutton_ctrl(CHNL));
                                     core::configManager.acquire();
-                                    core::configManager.conf["receivers"][CHNL]["mode"] = selectedMode[CHNL];
+                                    core::configManager.conf["receivers"][CHNL]["mode"] = 3;
                                     core::configManager.conf["receivers"][CHNL]["bank"] = ctrlListId[CHNL];
                                     core::configManager.release(true);
                                 }

@@ -220,6 +220,65 @@ namespace wav
     {
         std::lock_guard<std::recursive_mutex> lck(mtx);
         if (!rw.isOpen())
+            return;
+
+        const int maxFramesPerChunk = STREAM_BUFFER_SIZE;             // гарантированный размер промежуточных буферов
+        const int maxSamplesPerChunk = maxFramesPerChunk * _channels; // для volk-конвертации
+
+        int framesLeft = count;
+        int frameOffset = 0;
+
+        while (framesLeft > 0)
+        {
+            const int framesNow = std::min(framesLeft, maxFramesPerChunk);
+            const int samplesNow = framesNow * _channels;
+            const int bytesNow = framesNow * bytesPerSamp;
+
+            const float *in = samples + (size_t)frameOffset * _channels;
+            const uint8_t *dataToWrite = nullptr;
+
+            switch (_type)
+            {
+            case SAMP_TYPE_UINT8:
+                // volk не умеет u8 — заполняем bufU8 вручную, но строго в пределах выделенного буфера
+                for (int i = 0; i < samplesNow; i++)
+                    bufU8[i] = (in[i] * 127.0f) + 128.0f;
+                dataToWrite = bufU8;
+                break;
+
+            case SAMP_TYPE_INT16:
+                volk_32f_s32f_convert_16i(bufI16, in, 32767.0f, samplesNow);
+                dataToWrite = reinterpret_cast<const uint8_t *>(bufI16);
+                break;
+
+            case SAMP_TYPE_INT32:
+                volk_32f_s32f_convert_32i(bufI32, in, 2147483647.0f, samplesNow);
+                dataToWrite = reinterpret_cast<const uint8_t *>(bufI32);
+                break;
+
+            case SAMP_TYPE_FLOAT32:
+                dataToWrite = reinterpret_cast<const uint8_t *>(in);
+                break;
+
+            default:
+                return;
+            }
+
+            if (dataToWrite)
+                _write_buffered(dataToWrite, (size_t)bytesNow);
+
+            frameOffset += framesNow;
+            framesLeft -= framesNow;
+        }
+
+        // учёт написанных сэмплов — по кадрам (frames)
+        samplesWritten += count;
+    }
+    /*
+    void Writer::write(float *samples, int count)
+    {
+        std::lock_guard<std::recursive_mutex> lck(mtx);
+        if (!rw.isOpen())
         {
             return;
         }
@@ -253,30 +312,6 @@ namespace wav
             return;
         }
 
-        /*
-        switch (_type) {
-        case SAMP_TYPE_UINT8:
-            // Volk doesn't support unsigned ints yet :/
-            for (int i = 0; i < tcount; i++) {
-                bufU8[i] = (samples[i] * 127.0f) + 128.0f;
-            }
-            rw.write(bufU8, tbytes);
-            break;
-        case SAMP_TYPE_INT16:
-            volk_32f_s32f_convert_16i(bufI16, samples, 32767.0f, tcount);
-            rw.write((uint8_t*)bufI16, tbytes);
-            break;
-        case SAMP_TYPE_INT32:
-            volk_32f_s32f_convert_32i(bufI32, samples, 2147483647.0f, tcount);
-            rw.write((uint8_t*)bufI32, tbytes);
-            break;
-        case SAMP_TYPE_FLOAT32:
-            rw.write((uint8_t*)samples, tbytes);
-            break;
-        default:
-            break;
-        }
-        */
         // Вызываем новый метод для буферизованной записи
         if (dataToWrite)
         {
@@ -286,7 +321,7 @@ namespace wav
         // Increment sample counter
         samplesWritten += count;
     }
-
+    */
     // НОВОЕ: Реализация буферизованной записи
     void Writer::_write_buffered(const uint8_t *data, size_t bytes)
     {

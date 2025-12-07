@@ -170,6 +170,8 @@ public:
         if (SERVERS_Count > MAX_SERVERS)
             SERVERS_Count = MAX_SERVERS;
 
+        lastDataConnectionTimes.resize(SERVERS_Count);
+
         // Register source
         handler.ctx = this;
         handler.selectHandler = menuSelected;
@@ -182,6 +184,8 @@ public:
         // gui::menu.registerEntry(name, menuHandler, this);
         flog::warn(" RegisterInterface: {0}", name);
         sigpath::sourceManager.registerSource("APM", &handler);
+        for (int i = 0; i < 8; i++)
+            stats[i] = 0;
 
         clientData = NULL;
         threadEnabled.store(true);
@@ -227,10 +231,6 @@ public:
     }
 
 private:
-    // В файле tcp_client_arm.cpp на АРМ
-
-    // В файле remote_control_source (main.cpp модуля)
-
     // В remote_control_source (main.cpp модуля)
     static void worker(void *ctx)
     {
@@ -239,7 +239,7 @@ private:
 
         while (_this->threadEnabled.load())
         {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::seconds(2));
             if (!_this->threadEnabled.load())
                 break;
 
@@ -259,13 +259,25 @@ private:
             { // Если кнопка Play не нажата, ничего не делаем
                 continue;
             }
-
             uint8_t current_server_id = gui::mainWindow.getCurrServer();
 
-            // Условие сбоя: потерян INFO или DATA канал активного сервера
-            bool connection_lost = !_this->connectedInfo(current_server_id) || (!gui::mainWindow.isServerIsNotPlaying(current_server_id) && !_this->connected(current_server_id));
+            // Считаем, сколько секунд прошло с момента последнего подключения
+            auto time_since_connect = std::chrono::duration_cast<std::chrono::seconds>(
+                                          std::chrono::steady_clock::now() - _this->lastDataConnectionTimes[current_server_id])
+                                          .count();
 
-            if (connection_lost)
+            // Если прошло меньше 3 секунд, пропускаем проверку. Даем соединению стабилизироваться.
+            if (time_since_connect < 3)
+            {
+                continue;
+            }
+
+            // Условие сбоя: потерян INFO или DATA канал активного сервера
+            bool should_be_playing = gui::mainWindow.isARMPlaying();
+            // bool connection_lost = !_this->connectedInfo(current_server_id) || (!gui::mainWindow.isServerIsNotPlaying(current_server_id) && !_this->connected(current_server_id));
+            bool connection_lost = !_this->connectedInfo(current_server_id);
+
+            if (should_be_playing && connection_lost)
             {
                 flog::error("WORKER: Active server {0} connection lost! Searching for a new server...", current_server_id);
 
@@ -285,12 +297,15 @@ private:
                     flog::warn("WORKER: Found new server {0}. Requesting player restart.", next_server_id);
                     gui::mainWindow.setCurrServer(next_server_id);
                     gui::mainWindow.pleaseRestartPlayer = true; // Просто взводим флаг
+                    // Устанавливаем флаг, который MainWindow::draw увидит и вызовет перезапуск плеера
+                    gui::mainWindow.setUpdateMenuRcv0Main(next_server_id, true);
                 }
                 else
                 {
                     flog::error("WORKER: No other active servers found. Stopping player.");
-                    if (gui::mainWindow.isPlaying())
+                    if (gui::mainWindow.isPlaying() || gui::mainWindow.isPlaying())
                     {
+                        gui::mainWindow.setARMPlayState(false);
                         gui::mainWindow.setPlayState(false);
                     }
                     // gui::mainWindow.setARMPlayState(false);
@@ -388,7 +403,6 @@ private:
         }
         uint8_t numServer = gui::mainWindow.getCurrServer();
 
-
         if (!_this->connectedInfo(numServer))
         {
             flog::error("CANNOT START: Info-channel for server {0} is not connected.", numServer);
@@ -398,11 +412,12 @@ private:
             }
             return;
         }
-        if(gui::mainWindow.isServerIsNotPlaying(numServer)) {
+        if (gui::mainWindow.isServerIsNotPlaying(numServer))
+        {
             _this->running = true;
             flog::warn("gui::mainWindow.isServerIsNotPlaying({0}) {1}", numServer, gui::mainWindow.isServerIsNotPlaying(numServer));
             return;
-        } 
+        }
 
         double serverSampleRate = gui::mainWindow.getServerSampleRate(numServer);
         if (serverSampleRate > 0)
@@ -468,9 +483,9 @@ private:
                 if (_this->clientData && _this->clientData->isOpen())
                 {
                     _this->running = true;
+                    _this->lastDataConnectionTimes[numServer] = std::chrono::steady_clock::now();
                     flog::info("DATA channel connected successfully.");
                     gui::mainWindow.setServerPlayState(numServer, true);
-
                 }
                 else
                 {
@@ -482,7 +497,7 @@ private:
                 flog::error("Exception on DATA connect to server {0}: {1}", numServer, e.what());
                 // _this->running = false;
                 gui::mainWindow.setServerIsNotPlaying(numServer, true);
- 
+
                 if (_this->clientData)
                     _this->clientData = nullptr;
                 if (gui::mainWindow.isPlaying())
@@ -584,7 +599,12 @@ private:
         }
         catch (const std::exception &e)
         {
-            flog::warn("Exception while trying to connect to info-server {0}: {1}", numServer, e.what());
+            if (_this->stats[numServer] >= 5)
+            {
+                flog::warn("Exception while trying to connect to info-server {0}: {1}", numServer, e.what());
+                _this->stats[numServer] = 0;
+            }
+            _this->stats[numServer]++;
         }
     }
 
@@ -1045,6 +1065,8 @@ private:
     int cnt = 0;
     std::string currSource;
     bool Admin;
+    int stats[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    std::vector<std::chrono::steady_clock::time_point> lastDataConnectionTimes;
 };
 
 MOD_EXPORT void _INIT_()

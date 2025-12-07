@@ -63,7 +63,7 @@ struct SearchMode
     bool _status_record;
     int _lingerTime;    //
     bool _status_ignor; //
-    int _level;         //  = -70.0
+    int _level;         //  = -50.0
     bool selected;
     bool _status_direction;
     int _selectedLogicId;
@@ -85,7 +85,7 @@ struct SearchModeList
     bool _status_record;
     int _lingerTime;    //
     bool _status_ignor; //
-    int _level;         //  = -70.0
+    int _level;         //  = -50.0
     bool selected;
     bool _status_direction;
     int _selectedLogicId;
@@ -444,6 +444,7 @@ public:
         }
         else
         {
+            getSearchLists();
             gui::mainWindow.setUpdateModule_srch(0, false);
             gui::mainWindow.setLevelDbSrch(0, intLevel);
         }
@@ -458,7 +459,92 @@ public:
     bool isEnabled() override { return enabled; }
 
 private:
+    // --- AFC Configuration ---
+    struct AfcConfig
+    {
+        bool enabled = true;             // Включено по умолчанию (можно вывести в GUI)
+        double searchSpanHz = 4000.0;    // Ищем пик в окне +/- 2 кГц (для NFM/DMR с головой)
+        double deadZoneHz = 50.0;        // Мертвая зона (не дрыгаемся из-за мелочей)
+        double maxCorrectionHz = 1800.0; // Максимальный прыжок за раз
+    } afc;
+
+    // Хелпер для округления (из моего варианта, полезно для красоты)
+    double roundFreq(double freq, double step) const
+    {
+        return std::round(freq / step) * step;
+    }
+
     void applyPreset(int presetId)
+    {
+        flog::info("TRACE. Apply Preset: {0}", presetId);
+        bool updt = false;
+
+        switch (presetId)
+        {
+        case 1:                  // АМ Voice (Авиа / СВ)
+            mode = 2;            // AM
+            _bandwidthId = 3;    // ~6000-8000 Hz (обычный AM)
+            snapInterval = 5000; // Было 1000. 5кГц - стандартный шаг для быстрого поиска.
+            passbandRatio = 40;  // Было 15. Смотрим шире, чтобы не пропустить неточную настройку.
+            tuningTime = 200;    // Было 100. Даем время на стабилизацию PLL.
+            updt = true;
+            break;
+
+        case 2:                   // FM Voice (Аналог, такси, жд)
+            mode = 0;             // NFM
+            _bandwidthId = 3;     // ~12500 Hz
+            snapInterval = 12500; // Было 6250. 12.5кГц - стандарт. 6.25 нужно только для PMR.
+            passbandRatio = 50;   // Берем центральные 50% канала.
+            tuningTime = 200;
+            updt = true;
+            break;
+
+        case 3:                   // DMR (Цифра) - ВАЖНЫЕ ИЗМЕНЕНИЯ
+            mode = 0;             // NFM (SDR++ декодирует DMR через NFM демодулятор)
+            _bandwidthId = 4;     // ~12500 Hz (Обязательно, DMR шире узкого NFM)
+            snapInterval = 12500; // Сетка жесткая 12.5 кГц
+
+            // PassbandRatio: Увеличиваем до 40-50%.
+            // При 10% (было) малейшее отклонение частоты давало просадку уровня.
+            passbandRatio = 40;
+
+            // TuningTime: Увеличиваем до 250 мс.
+            // При прыжке частоты (Look-ahead) нужно полностью сбросить буфер,
+            // иначе сканер увидит "хвост" сигнала с прошлой частоты.
+            tuningTime = 250;
+            updt = true;
+            break;
+
+        case 4:                    // FM Radio (Вещательные)
+            mode = 1;              // WFM
+            _bandwidthId = 8;      // ~200000 Hz
+            snapInterval = 100000; // 100 кГц
+            passbandRatio = 50;    // Смотрим центр
+            tuningTime = 150;      // WFM мощный, его видно сразу, можно быстрее.
+            updt = true;
+            break;
+        }
+
+        if (updt)
+        {
+            // Защита от вылета индекса массива
+            if (_bandwidthId >= bandwidthsList.size())
+                _bandwidthId = bandwidthsList.size() - 1;
+
+            bandwidth = bandwidthsList[_bandwidthId];
+
+            // Важно: Сначала режим, потом полоса
+            core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_SET_MODE, &mode, NULL);
+            core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_SET_SNAPINTERVAL, &snapInterval, NULL);
+
+            double bw = (double)bandwidth;
+            core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_SET_BANDWIDTH, &bw, NULL);
+
+            flog::info("Preset Applied: Mode={0}, BW={1}, Snap={2}, TuneTime={3}", mode, bandwidth, snapInterval, tuningTime);
+        }
+    }
+
+    void applyPreset2(int presetId)
     {
         flog::info("TRACE. _this->selectedSrchMode = {0}!", presetId);
         bool updt = false;
@@ -486,7 +572,7 @@ private:
             _bandwidthId = 4; // 12500
             snapInterval = 12500;
             passbandRatio = 10;
-            tuningTime = 100;
+            tuningTime = 200;
             updt = true;
             break;
         case 4:               // FM Radio
@@ -559,6 +645,7 @@ private:
             gui::waterfall.finded_freq.clear();
         }
         skipNoise.clear();
+        /*
         current = startFreq; // Set initial frequency
         last_current = current;
         if (mode == 1 && selectedLogicId == 2)
@@ -571,14 +658,25 @@ private:
         gui::mainWindow.settuningMode(tuner::TUNER_MODE_NORMAL);
         tuner::tune(tuner::TUNER_MODE_NORMAL, gui::waterfall.selectedVFO, startFreq);
         gui::waterfall.VFOMoveSingleClick = false;
-
-        /*
-        tuner::tune(tuner::TUNER_MODE_CENTER, gui::waterfall.selectedVFO, startFreq);
-        // gui::waterfall.centerFreqMoved = true;
-        tuner::tune(tuner::TUNER_MODE_CENTER, gui::waterfall.selectedVFO, startFreq);
-        tuner::centerTuning(gui::waterfall.selectedVFO, startFreq);
-        gui::waterfall.centerFreqMoved = true;
         */
+        current = startFreq; // Set initial frequency
+        last_current = current;
+        if (mode == 1 && selectedLogicId == 2)
+            selectedIntervalId = 7;
+
+        calculateScanSegment(startFreq, stopFreq, scan_band, sigmentLeft, sigmentRight);
+        initial_find_level = true;
+
+        applyPreset(selectedSrchMode);
+        gui::mainWindow.settuningMode(tuner::TUNER_MODE_NORMAL);
+
+        // --- ТЮНИМ НЕ НА startFreq, А НА ЦЕНТР, СДВИНУТЫЙ НА 25% ШИРИНЫ ---
+        double wfWidth = gui::waterfall.getViewBandwidth(); // видимая ширина спектра
+        double centerFreq = startFreq + wfWidth * 0.15;     // startFreq на 25% слева
+
+        tuner::tune(tuner::TUNER_MODE_NORMAL, gui::waterfall.selectedVFO, centerFreq);
+
+        gui::waterfall.VFOMoveSingleClick = false;
         // int tuningMode = gui::mainWindow.gettuningMode();
         // tuner::tune(tuningMode, gui::waterfall.selectedVFO, startFreq);
         gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
@@ -622,30 +720,27 @@ private:
 
     void worker()
     {
-        // Эти переменные должны быть здесь, а не в workerInfo
         auto init_level_time = std::chrono::high_resolution_clock::now();
-        int skip_for_relevel_counter = 0; // Локальный счетчик для этого рабочего потока
+        int skip_for_relevel_counter = 0;
         bool timer_started = false;
         std::chrono::steady_clock::time_point trigger_time;
 
-        // Таймер для очистки skipNoise
         auto last_cleanup_time = std::chrono::steady_clock::now();
         const auto cleanup_interval = std::chrono::seconds(180);
 
         while (running.load())
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // 1. Пауза, чтобы не грузить CPU
+            std::this_thread::sleep_for(std::chrono::milliseconds(75));
 
             auto now_steady = std::chrono::steady_clock::now();
             auto now = std::chrono::high_resolution_clock::now();
 
-            // ====================================================================
-            // ЗДЕСЬ МЫ РАЗМЕЩАЕМ ВАШУ ЛОГИКУ ПРОВЕРКИ НА ПЕРЕКАЛИБРОВКУ
-            // ====================================================================
-            // Эта проверка имеет смысл только если мы НЕ в процессе приема/записи
-            if (state.load() == State::SEARCHING || state.load() == State::TUNING)
+            State st = state.load();
+
+            // --- Логика перекалибровки (Auto Level) ---
+            if (st == State::SEARCHING || st == State::TUNING)
             {
-                // Потокобезопасно читаем, включен ли авто-уровень
                 bool local_status_auto_level;
                 {
                     std::lock_guard<std::mutex> lock(paramMtx);
@@ -654,18 +749,13 @@ private:
 
                 if (local_status_auto_level)
                 {
-                    // Причина 1: Пропуск N частот
                     if (skip_for_relevel_counter >= COUNT_FOR_REFIND_SKIP)
                     {
-                        flog::info("[WORKER] Re-calibration triggered by skip count.");
                         initial_find_level = true;
                     }
-
-                    // Причина 2: Изменение усиления в GUI
                     bool new_gain = gui::mainWindow.getChangeGain();
                     if (new_gain)
                     {
-                        flog::info("[WORKER] Re-calibration triggered by gain change.");
                         gui::mainWindow.setChangeGainFalse();
                         trigger_time = now_steady + std::chrono::seconds(1);
                         timer_started = true;
@@ -675,41 +765,37 @@ private:
                         initial_find_level = true;
                         timer_started = false;
                     }
-
-                    // Причина 3: Истечение временного интервала
                     if ((now - init_level_time) > std::chrono::minutes(INTERVAL_FOR_FIND_THRESHOLD_MIN))
                     {
-                        flog::info("[WORKER] Re-calibration triggered by interval timeout.");
                         initial_find_level = true;
                     }
                 }
             }
 
-            // --- Периодическая очистка ---
+            // --- Очистка ---
             if ((now_steady - last_cleanup_time) > cleanup_interval)
             {
                 cleanupSkipNoise();
                 last_cleanup_time = now_steady;
             }
-            /*
-            double vfo_freq = gui::waterfall.getCenterFrequency() + gui::waterfall.vfos.at(gui::waterfall.selectedVFO)->generalOffset;
-            if (abs(vfo_freq - current) > 1.0)
-            {
-                tuner::normalTuning(gui::waterfall.selectedVFO, current);
-            }
-            */
 
-            std::string currentSelectedVFO = gui::waterfall.selectedVFO;
-            if (!currentSelectedVFO.empty() && gui::waterfall.vfos.count(currentSelectedVFO))
+            // 2. АВТО-ТЮНИНГ (Строгое ограничение состояний)
+            // Исключили TUNING и LEVEL_CALIBRATION. Двигаем VFO только когда ищем или принимаем.
+            if (st == State::SEARCHING || st == State::RECEIVING || st == State::LINGERING || st == State::WAITING_FOR_AKF)
             {
-                double vfo_freq = gui::waterfall.getCenterFrequency() + gui::waterfall.vfos.at(currentSelectedVFO)->generalOffset;
-                if (abs(vfo_freq - current) > 1.0)
+                std::string currentSelectedVFO = gui::waterfall.selectedVFO;
+                if (!currentSelectedVFO.empty() && gui::waterfall.vfos.count(currentSelectedVFO))
                 {
-                    flog::info("vfo_freq = {0}, current {1}", vfo_freq, current);
-                    tuner::normalTuning(currentSelectedVFO, current);
+                    double vfo_freq = gui::waterfall.getCenterFrequency() + gui::waterfall.vfos.at(currentSelectedVFO)->generalOffset;
+
+                    if (std::abs(vfo_freq - current) > 100.0)
+                    {
+                        tuner::normalTuning(currentSelectedVFO, current);
+                    }
                 }
             }
-            // Get FFT data once per iteration
+
+            // --- Получение данных FFT ---
             int dataWidth = 0;
             float *data = gui::waterfall.acquireLatestFFT(dataWidth);
             if (!data)
@@ -717,28 +803,21 @@ private:
                 continue;
             }
 
-            // ====================================================================
-            // ПРИНУДИТЕЛЬНЫЙ ПЕРЕХОД В КАЛИБРОВКУ, ЕСЛИ ЭТО НЕОБХОДИМО
-            // ====================================================================
-            if (initial_find_level && state.load() != State::LEVEL_CALIBRATION)
+            // --- Переход в калибровку ---
+            if (initial_find_level && st != State::LEVEL_CALIBRATION)
             {
-                // Если флаг взведен, а мы еще не в калибровке, переходим в нее.
-                // Это гарантирует, что мы не пропустим запрос на калибровку.
-                flog::info("[WORKER] Forcing state to LEVEL_CALIBRATION.");
                 state.store(State::LEVEL_CALIBRATION);
+                st = State::LEVEL_CALIBRATION;
             }
 
-            State currentState = state.load();
-
-            // Handle state transitions
-            switch (currentState)
+            // --- State Machine ---
+            switch (st)
             {
             case State::STOPPED:
-                running.store(false); // Safeguard
+                running.store(false);
                 break;
 
             case State::STARTING:
-                // При старте мы всегда сначала настраиваемся на начальную частоту
                 tuner::normalTuning(gui::waterfall.selectedVFO, current);
                 lastTuneTime = std::chrono::high_resolution_clock::now();
                 state.store(State::TUNING);
@@ -759,7 +838,7 @@ private:
 
             case State::SEARCHING:
                 handleSearching(data, dataWidth, now);
-                // Check if it's time to re-calibrate the level
+                // Дубль проверки таймера (можно убрать, если есть выше, но не мешает)
                 {
                     std::lock_guard<std::mutex> lock(paramMtx);
                     if (status_auto_level && (now - init_level_time) > std::chrono::minutes(INTERVAL_FOR_FIND_THRESHOLD_MIN))
@@ -770,7 +849,6 @@ private:
                 break;
 
             case State::RECEIVING:
-
                 handleReceiving(data, dataWidth, now);
                 break;
 
@@ -821,18 +899,14 @@ private:
     {
         if (status_auto_level)
         {
-
             flog::info("Auto level calibrating ...");
             float signalThreshold;
             {
                 std::lock_guard<std::mutex> lock(paramMtx);
-                // Assuming your functions are thread-safe or don't modify shared state
-                // It's safer to read parameters under lock
                 double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency();
                 double wfWidth = gui::waterfall.getViewBandwidth();
                 double wfStart = wfCenter - (wfWidth / 2.0);
 
-                // calculateScanSegment(startFreq, stopFreq, scan_band, sigmentLeft, sigmentRight);
                 int numSegments = static_cast<int>((sigmentRight - sigmentLeft) / scan_band);
                 signalThreshold = scanRange(numSegments, data, dataWidth, wfStart, wfWidth, snr_level);
             }
@@ -844,35 +918,73 @@ private:
             }
             flog::info("Auto level calibrated. New threshold: {0} dB", intLevel);
         }
-        // Сбрасываем все триггеры, включая главный флаг
+
+        // --- ВАЖНО: Сбрасываем флаг, иначе зациклимся ---
         initial_find_level = false;
+
         skip_for_relevel_counter = 0;
         if (gui::mainWindow.getChangeGain())
         {
             gui::mainWindow.setChangeGainFalse();
         }
+
         init_level_time = std::chrono::high_resolution_clock::now();
 
-        // После калибровки можно сразу начинать поиск
+        // Возвращаемся к поиску
         state.store(State::SEARCHING);
 
         gui::mainWindow.setLevelDbSrch(CurrSrvr, intLevel);
         gui::mainWindow.setUpdateMenuSnd5Srch(CurrSrvr, true);
     }
 
-    // handleSearching
-    void handleSearching(float *data, int dataWidth, const std::chrono::time_point<std::chrono::high_resolution_clock> &now)
+    // --- НОВАЯ ФУНКЦИЯ: Поиск точного пика в пределах полосы ---
+    double findLocalPeakFrequency(const float *data, int dataWidth, double wfStart, double wfWidth, double approxFreq, double searchSpanHz)
     {
-        // --- 1. Проверка на необходимость перекалибровки (этот блок правильный) ---
-        if (initial_find_level)
+        if (!data || dataWidth <= 0 || wfWidth <= 0.0 || searchSpanHz <= 0.0)
+            return approxFreq;
+
+        const double binWidth = wfWidth / static_cast<double>(dataWidth);
+        if (binWidth <= 0.000001)
+            return approxFreq; // Защита
+
+        double lowFreq = approxFreq - searchSpanHz * 0.5;
+        double highFreq = approxFreq + searchSpanHz * 0.5;
+
+        // Перевод частот в индексы массива
+        int lowId = std::clamp<int>(
+            static_cast<int>(std::floor((lowFreq - wfStart) / binWidth)),
+            0, dataWidth - 1);
+
+        int highId = std::clamp<int>(
+            static_cast<int>(std::ceil((highFreq - wfStart) / binWidth)),
+            0, dataWidth - 1);
+
+        if (lowId > highId)
+            std::swap(lowId, highId);
+
+        float maxVal = -10000.0f; // Используем заведомо низкое значение
+        int maxIdx = -1;
+
+        for (int i = lowId; i <= highId; ++i)
         {
-            // tuner::normalTuning здесь не нужен, он вызовется в централизованном блоке
-            lastTuneTime = std::chrono::high_resolution_clock::now();
-            state.store(State::TUNING);
-            return;
+            if (data[i] > maxVal)
+            {
+                maxVal = data[i];
+                maxIdx = i;
+            }
         }
 
-        // --- 2. Логирование (тоже правильное) ---
+        if (maxIdx < 0)
+            return approxFreq;
+
+        // Возвращаем точную частоту центра бина
+        double peakFreq = wfStart + (static_cast<double>(maxIdx) + 0.5) * binWidth;
+        return peakFreq;
+    }
+
+    void handleSearching(float *data, int dataWidth, const std::chrono::time_point<std::chrono::high_resolution_clock> &now)
+    {
+        // 1. Логирование
         static std::chrono::time_point<std::chrono::steady_clock> last_log_time;
         if ((std::chrono::steady_clock::now() - last_log_time) > std::chrono::seconds(1))
         {
@@ -880,16 +992,64 @@ private:
             last_log_time = std::chrono::steady_clock::now();
         }
 
-        // --- 3. Поиск сигнала в видимой области ---
+        // 2. Поиск
         double bottomLimit = current, topLimit = current;
+
         if (findSignal(SCAN_UP, bottomLimit, topLimit, data, dataWidth))
         {
-            // Сигнал найден!
-            // ТЮНИНГ ЗДЕСЬ НЕ НУЖЕН. Мы уже на правильной частоте, т.к. `findSignal` обновил `current`.
-            // Централизованный блок тюнинга в `worker` может сделать небольшую подстройку, если нужно.
+            // === Пред-фильтр ===
+            const double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency();
+            const double wfWidth = gui::waterfall.getViewBandwidth();
+            const double wfStart = wfCenter - (wfWidth / 2.0);
+            const double vfoWidth = sigpath::vfoManager.getBandwidth(gui::waterfall.selectedVFO);
 
-            flog::info("Signal found at {0}. Entering reception state.", utils::formatFreqMHz(current));
+            int localIntLevel;
+            {
+                std::lock_guard<std::mutex> lock(paramMtx);
+                localIntLevel = intLevel;
+            }
 
+            float preciseLevel = getMaxLevel(data, current, vfoWidth, dataWidth, wfStart, wfWidth);
+
+            if (preciseLevel < (float)localIntLevel)
+            {
+                skipNoise[current] = std::chrono::steady_clock::now();
+                return;
+            }
+
+            // === AFC ===
+            if (afc.enabled)
+            {
+                double localSnapInterval;
+                {
+                    std::lock_guard<std::mutex> lock(paramMtx);
+                    localSnapInterval = snapInterval;
+                }
+
+                // 1. Ищем пик в окне (как раньше)
+                double span = std::min(afc.searchSpanHz, localSnapInterval);
+                double peakFreq = findLocalPeakFrequency(data, dataWidth, wfStart, wfWidth, current, span);
+
+                // 2. Привязываем к сетке каналов (DMR 12.5 кГц / AM/FM – своя)
+                double snappedFreq = std::round(peakFreq / localSnapInterval) * localSnapInterval;
+
+                // 3. Считаем дельту уже от snappedFreq
+                double deltaHz = snappedFreq - current;
+                double absDeltaHz = std::abs(deltaHz);
+
+                if (absDeltaHz > afc.deadZoneHz && absDeltaHz < afc.maxCorrectionHz)
+                {
+                    double correctedFreq = snappedFreq; // РОВНО по сетке, без хвостов
+                    flog::info("AFC (search): Adjusted {0} -> {1} (Delta={2} Hz)",
+                               utils::formatFreqMHz(current),
+                               utils::formatFreqMHz(correctedFreq),
+                               deltaHz);
+                    current = correctedFreq;
+                }
+            }
+
+            // === Старт ===
+            flog::info("Signal LOCKED at {0}. RX.", utils::formatFreqMHz(current));
             firstSignalTime = std::chrono::high_resolution_clock::now();
             lastSignalTime = firstSignalTime;
             signal_lost_counter = 0;
@@ -897,15 +1057,12 @@ private:
 
             startRecording();
 
-            // Переходим в RECEIVING (или WAITING_FOR_AKF, как решит startRecording)
             if (state.load() == State::SEARCHING)
-            {
                 state.store(State::RECEIVING);
-            }
             return;
         }
 
-        // --- 4. Сигнал не найден. Перемещаемся на следующий участок диапазона ---
+        // 3. Следующий шаг
         double localStartFreq, localStopFreq, localSnapInterval;
         {
             std::lock_guard<std::mutex> lock(paramMtx);
@@ -916,37 +1073,69 @@ private:
 
         current = topLimit + localSnapInterval;
         if (current > localStopFreq)
-        {
             current = localStartFreq;
-        }
 
-        // --- 5. Проверяем, нужна ли физическая перестройка тюнера ---
-        const double wfStart = gui::waterfall.getCenterFrequency() - (gui::waterfall.getViewBandwidth() / 2.0);
-        const double wfEnd = gui::waterfall.getCenterFrequency() + (gui::waterfall.getViewBandwidth() / 2.0);
+        // 4. Проверка границ
+        const double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency();
+        const double wfWidth = gui::waterfall.getViewBandwidth();
 
-        if (current < wfStart || current > wfEnd)
+        if (wfWidth <= 0.0)
+            return;
+
+        const double wfStart = wfCenter - wfWidth / 2.0;
+        const double wfEnd = wfCenter + wfWidth / 2.0;
+
+        // Вылетели за экран полностью
+        bool outOfBounds = (current < wfStart) || (current > wfEnd);
+
+        // "Серая зона" — далеко от центра, но ещё на экране
+        double distFromCenter = std::abs(current - wfCenter);
+        double centerThreshold = wfWidth * 0.35; // 35% от ширины
+
+        // Если уже в режиме TUNING — тут вообще ничего не делаем
+        if (state.load() == State::TUNING)
+            return;
+
+        // Гистерезис по времени, чтобы не спамить переключениями
+        static std::chrono::steady_clock::time_point lastRecenterTime{};
+        auto nowSteady = std::chrono::steady_clock::now();
+
+        // Не чаще одного раза в 500 мс
+        if ((nowSteady - lastRecenterTime) < std::chrono::milliseconds(500))
+            return;
+
+        // Финальное условие: либо совсем ушли за экран, либо сильно сместились от центра
+        if (outOfBounds || distFromCenter > centerThreshold)
         {
-            // `current` вышел за пределы видимости.
-            flog::info("End of visible spectrum reached. Retuning to {0} MHz.", utils::formatFreqMHz(current));
+            lastRecenterTime = nowSteady;
 
-            // ВЫЗЫВАЕМ ТЮНИНГ ЗДЕСЬ! Это действие выполнит централизованный блок в `worker`.
-            // Нам нужно просто перейти в состояние ожидания.
+            flog::info("Re-centering REQUEST. current={0} MHz, wf=[{1} .. {2}]",
+                       utils::formatFreqMHz(current),
+                       utils::formatFreqMHz(wfStart),
+                       utils::formatFreqMHz(wfEnd));
+
+            // НИКАКОГО tuner::normalTuning здесь нет.
+            // Только перевод в TUNING, чтобы handleTuning/worker сами делали нужное.
             lastTuneTime = std::chrono::high_resolution_clock::now();
             state.store(State::TUNING);
         }
-
-        // Если `current` все еще в пределах видимости, то на следующей итерации
-        // `findSignal` просто продолжит поиск с новой точки. Ничего больше делать не нужно.
     }
+
     void handleReceiving(float *data, int dataWidth, const std::chrono::time_point<std::chrono::high_resolution_clock> &now)
     {
         // --- 1. Читаем параметры и уровень сигнала ---
         const double vfoWidth = sigpath::vfoManager.getBandwidth(gui::waterfall.selectedVFO);
-        const double wfStart = gui::waterfall.getCenterFrequency() - (gui::waterfall.getViewBandwidth() / 2.0);
+        // const double wfStart = gui::waterfall.getCenterFrequency() - (gui::waterfall.getViewBandwidth() / 2.0);
+        // const double wfWidth = gui::waterfall.getViewBandwidth();
+        // maxLevel = getMaxLevel(data, current, vfoWidth, dataWidth, wfStart, wfWidth);
+
+        const double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency();
         const double wfWidth = gui::waterfall.getViewBandwidth();
+        const double wfStart = wfCenter - (wfWidth / 2.0);
 
         maxLevel = getMaxLevel(data, current, vfoWidth, dataWidth, wfStart, wfWidth);
 
+        // --- END AFC ---
         int localIntLevel, localLingerTime;
         {
             std::lock_guard<std::mutex> lock(paramMtx);
@@ -965,11 +1154,47 @@ private:
         }
 
         // --- 3. Логика гистерезиса ---
+        // Сначала проверяем, есть ли сигнал ВООБЩЕ (по обычному уровню)
         if (maxLevel >= localIntLevel)
         {
-            // Сигнал есть. Сбрасываем счетчик потери и обновляем время последнего сильного сигнала.
+            // Сигнал есть! Сбрасываем счетчик потери.
             signal_lost_counter = 0;
             lastSignalTime = now;
+
+            // --- AFC запускаем только если сигнал СИЛЬНЫЙ (hysteresis +3dB) ---
+            if (afc.enabled && maxLevel > (localIntLevel + 3.0f))
+            {
+                // 1. Берём шаг сетки (для DMR: 12500 Гц)
+                double localSnapInterval;
+                {
+                    std::lock_guard<std::mutex> lock(paramMtx);
+                    localSnapInterval = snapInterval;
+                }
+
+                // 2. Ищем пик в окне вокруг current
+                double span = std::min(afc.searchSpanHz, localSnapInterval);
+                double peakFreq = findLocalPeakFrequency(
+                    data, dataWidth,
+                    wfStart, wfWidth,
+                    current, span);
+
+                // 3. Привязываем частоту к сетке каналов (DMR: кратно 12.5 кГц)
+                double snappedFreq = std::round(peakFreq / localSnapInterval) * localSnapInterval;
+
+                // 4. Считаем дельту уже от snappedFreq
+                double deltaHz = snappedFreq - current;
+                double absDeltaHz = std::abs(deltaHz);
+
+                if (absDeltaHz > afc.deadZoneHz && absDeltaHz < afc.maxCorrectionHz)
+                {
+                    flog::info("AFC (RX): Adjusted {0} -> {1} (Delta={2} Hz)",
+                               utils::formatFreqMHz(current),
+                               utils::formatFreqMHz(snappedFreq),
+                               deltaHz);
+
+                    current = snappedFreq;
+                }
+            }
         }
         else
         {
@@ -990,8 +1215,8 @@ private:
             state.store(State::LINGERING);
         }
     }
-    // handleLingering
 
+    // handleLingering
     void handleLingering(float *data, int dataWidth, const std::chrono::time_point<std::chrono::high_resolution_clock> &now)
     {
         // --- 1. Читаем параметры ---
@@ -1331,116 +1556,146 @@ private:
                 // Программа завершается. Больше ничего не делаем.
                 // Просто ждем, пока нас остановят через pleaseStop.
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                continue;
+                flog::warn("if (core::g_isExiting) scanner2");
+                break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-            if (!_this->isServer && !_this->isARM)
             {
-                continue;
-            }
-            // ====================================================================
-            // Фаза 1: Сбор команд и данных из GUI (быстрые неблокирующие вызовы)
-            // ====================================================================
-            uint8_t currSrvr = gui::mainWindow.getCurrServer();
-            bool list_update_requested = _this->isServer && gui::mainWindow.getUpdateMenuRcv5Srch() && gui::mainWindow.getUpdateListRcv5Srch(currSrvr);
-            int new_id_from_gui = gui::mainWindow.getidOfList_srch(currSrvr);
+                std::lock_guard<std::mutex> lck(_this->classMtx);
 
-            // ====================================================================
-            // Фаза 2: Выполнение тяжелой операции (обновление списка) БЕЗ мьютекса
-            // ====================================================================
-            bool list_was_updated = false;
-            if (list_update_requested)
-            {
-                gui::mainWindow.setUpdateMenuRcv5Srch(false);
-                gui::mainWindow.setUpdateListRcv5Srch(currSrvr, false);
-
-                flog::info("[workerInfo] List update request received. Processing...");
-                int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_srch();
-                if (cnt_bbuf > 0)
+                if (!_this->isServer && !_this->isARM)
                 {
-                    void *bbufRCV = ::operator new(cnt_bbuf);
-                    memcpy(bbufRCV, gui::mainWindow.getbbuf_srch(), cnt_bbuf);
+                    continue;
+                }
+                // ====================================================================
+                // Фаза 1: Сбор команд и данных из GUI (быстрые неблокирующие вызовы)
+                // ====================================================================
+                uint8_t currSrvr = gui::mainWindow.getCurrServer();
+                bool list_update_requested = _this->isServer && gui::mainWindow.getUpdateMenuRcv5Srch() && gui::mainWindow.getUpdateListRcv5Srch(currSrvr);
+                // bool list_update_requested = gui::mainWindow.getUpdateMenuRcv5Srch() && gui::mainWindow.getUpdateListRcv5Srch(currSrvr);
 
-                    config.acquire();
-                    for (const auto &name : _this->listNames)
+                int new_id_from_gui = gui::mainWindow.getidOfList_srch(currSrvr);
+
+                // ====================================================================
+                // Фаза 2: Выполнение тяжелой операции (обновление списка) БЕЗ мьютекса
+                // ====================================================================
+                bool list_was_updated = false;
+                if (list_update_requested)
+                {
+                    gui::mainWindow.setUpdateMenuRcv5Srch(false);
+                    gui::mainWindow.setUpdateListRcv5Srch(currSrvr, false);
+
+                    flog::info("[workerInfo] List update request received. Processing...");
+                    int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_srch();
+                    if (cnt_bbuf > 0)
                     {
-                        if (name != "General")
+                        void *bbufRCV = ::operator new(cnt_bbuf);
+                        memcpy(bbufRCV, gui::mainWindow.getbbuf_srch(), cnt_bbuf);
+
+                        config.acquire();
+                        SearchModeList fbm;
+                        for (int poz = 0; poz < cnt_bbuf; poz += sizeof(fbm))
                         {
-                            config.conf["lists"].erase(name);
+                            memcpy(&fbm, static_cast<uint8_t *>(bbufRCV) + poz, sizeof(fbm));
+                            std::string listname(fbm.listName);
+
+                            json def = json::object();
+                            def["listName"] = listname;
+                            def["_mode"] = fbm._mode;
+                            def["_bandwidth"] = fbm._bandwidth;
+                            def["_startFreq"] = fbm._startFreq;
+                            def["_stopFreq"] = fbm._stopFreq;
+                            def["_interval"] = fbm._interval;
+                            def["_passbandRatio"] = fbm._passbandRatio;
+                            def["_tuningTime"] = fbm._tuningTime;
+                            def["_waitingTime"] = fbm._waitingTime;
+                            def["_lingerTime"] = fbm._lingerTime;
+                            def["_level"] = fbm._level;
+                            def["_selectedLogicId"] = fbm._selectedLogicId;
+                            def["_status_stop"] = fbm._status_stop;
+                            def["_status_record"] = fbm._status_record;
+                            def["_status_direction"] = fbm._status_direction;
+                            def["_status_ignor"] = fbm._status_ignor;
+                            def["_selectedSrchMode"] = fbm._selectedSrchMode;
+                            config.conf["lists"][listname] = def;
+                        }
+                        config.release(true);
+                        ::operator delete(bbufRCV);
+                    }
+
+                    _this->refreshLists();
+
+                    list_was_updated = true;
+                }
+
+                // ====================================================================
+                // Фаза 3: Принятие решений и обновление простых параметров (короткая блокировка)
+                // ====================================================================
+                bool id_has_changed = false;
+                bool should_start = false;
+                bool should_stop = false;
+
+                { // Начало короткой критической секции
+                    // std::lock_guard<std::mutex> lock(_this->paramMtx);
+                    // Обновляем простые переменные
+                    _this->CurrSrvr = currSrvr;
+                    _this->currSource = sourcemenu::getCurrSource();
+
+                    // Проверяем, изменился ли ID списка
+                    if (_this->selectedListId != new_id_from_gui)
+                    {
+                        id_has_changed = true;
+                    }
+
+                    // --- Блок для isARM ---
+                    if (_this->isARM)
+                    {
+                        if (!gui::mainWindow.getUpdateMenuSnd5Srch(currSrvr))
+                        {
+                            if (_this->selectedListId != gui::mainWindow.getidOfList_srch(currSrvr))
+                            {
+                                // Важно! loadByName тяжелая, ее нельзя вызывать под мьютексом
+                                // Мы просто запомним, что нужно сделать, и сделаем после
+                                // Эта логика будет обработана ниже
+                            }
+
+                            if (_this->intLevel != gui::mainWindow.getLevelDbSrch(currSrvr))
+                            {
+                                _this->intLevel = gui::mainWindow.getLevelDbSrch(currSrvr);
+                            }
+                            if (_this->status_AKF != gui::mainWindow.getAKFInd(currSrvr))
+                            {
+                                _this->status_AKF = gui::mainWindow.getAKFInd(currSrvr);
+                            }
+                            if (_this->status_auto_level != gui::mainWindow.getAuto_levelSrch(currSrvr))
+                            {
+                                _this->status_auto_level = gui::mainWindow.getAuto_levelSrch(currSrvr);
+                            }
+                            if (_this->snr_level != gui::mainWindow.getSNRLevelDb(currSrvr))
+                            {
+                                _this->snr_level = std::clamp<int>(gui::mainWindow.getSNRLevelDb(currSrvr), 5, maxSNRLevel);
+                            }
+                            int guiSelectedLogicId = gui::mainWindow.getselectedLogicId(currSrvr);
+                            if (_this->selectedLogicId != guiSelectedLogicId)
+                            {
+                                _this->selectedLogicId = guiSelectedLogicId;
+                            }
                         }
                     }
 
-                    SearchModeList fbm;
-                    for (int poz = 0; poz < cnt_bbuf; poz += sizeof(fbm))
+                    // --- Блок для isServer ---
+                    if (_this->isServer)
                     {
-                        memcpy(&fbm, static_cast<uint8_t *>(bbufRCV) + poz, sizeof(fbm));
-                        std::string listname(fbm.listName);
-
-                        json def = json::object();
-                        def["listName"] = listname;
-                        def["_mode"] = fbm._mode;
-                        def["_bandwidth"] = fbm._bandwidth;
-                        def["_startFreq"] = fbm._startFreq;
-                        def["_stopFreq"] = fbm._stopFreq;
-                        def["_interval"] = fbm._interval;
-                        def["_passbandRatio"] = fbm._passbandRatio;
-                        def["_tuningTime"] = fbm._tuningTime;
-                        def["_waitingTime"] = fbm._waitingTime;
-                        def["_lingerTime"] = fbm._lingerTime;
-                        def["_level"] = fbm._level;
-                        def["_selectedLogicId"] = fbm._selectedLogicId;
-                        def["_status_stop"] = fbm._status_stop;
-                        def["_status_record"] = fbm._status_record;
-                        def["_status_direction"] = fbm._status_direction;
-                        def["_status_ignor"] = fbm._status_ignor;
-                        def["_selectedSrchMode"] = fbm._selectedSrchMode;
-                        config.conf["lists"][listname] = def;
-                    }
-                    config.release(true);
-                    ::operator delete(bbufRCV);
-                }
-
-                _this->refreshLists();
-
-                list_was_updated = true;
-            }
-
-            // ====================================================================
-            // Фаза 3: Принятие решений и обновление простых параметров (короткая блокировка)
-            // ====================================================================
-            bool id_has_changed = false;
-            bool should_start = false;
-            bool should_stop = false;
-
-            { // Начало короткой критической секции
-                // std::lock_guard<std::mutex> lock(_this->paramMtx);
-                // Обновляем простые переменные
-                _this->CurrSrvr = currSrvr;
-                _this->currSource = sourcemenu::getCurrSource();
-
-                // Проверяем, изменился ли ID списка
-                if (_this->selectedListId != new_id_from_gui)
-                {
-                    id_has_changed = true;
-                }
-
-                // --- Блок для isARM ---
-                if (_this->isARM)
-                {
-                    if (!gui::mainWindow.getUpdateMenuSnd5Srch(currSrvr))
-                    {
-                        if (_this->selectedListId != gui::mainWindow.getidOfList_srch(currSrvr))
+                        if (gui::mainWindow.getUpdateMenuRcv5Srch())
                         {
-                            // Важно! loadByName тяжелая, ее нельзя вызывать под мьютексом
-                            // Мы просто запомним, что нужно сделать, и сделаем после
-                            // Эта логика будет обработана ниже
+                            gui::mainWindow.setUpdateMenuRcv5Srch(false);
                         }
 
-                        if (_this->intLevel != gui::mainWindow.getLevelDbSrch(currSrvr))
+                        if (!_first)
                         {
-                            _this->intLevel = gui::mainWindow.getLevelDbSrch(currSrvr);
+                            _first = gui::mainWindow.getFirstConn(NUM_MOD);
                         }
+
                         if (_this->status_AKF != gui::mainWindow.getAKFInd(currSrvr))
                         {
                             _this->status_AKF = gui::mainWindow.getAKFInd(currSrvr);
@@ -1453,109 +1708,82 @@ private:
                         {
                             _this->snr_level = std::clamp<int>(gui::mainWindow.getSNRLevelDb(currSrvr), 5, maxSNRLevel);
                         }
-                    }
-                }
-
-                // --- Блок для isServer ---
-                if (_this->isServer)
-                {
-                    if (gui::mainWindow.getUpdateMenuRcv5Srch())
-                    {
-                        gui::mainWindow.setUpdateMenuRcv5Srch(false);
-                    }
-
-                    if (!_first)
-                    {
-                        _first = gui::mainWindow.getFirstConn(NUM_MOD);
-                    }
-
-                    if (_this->status_AKF != gui::mainWindow.getAKFInd(currSrvr))
-                    {
-                        _this->status_AKF = gui::mainWindow.getAKFInd(currSrvr);
-                    }
-                    if (_this->status_auto_level != gui::mainWindow.getAuto_levelSrch(currSrvr))
-                    {
-                        _this->status_auto_level = gui::mainWindow.getAuto_levelSrch(currSrvr);
-                    }
-                    if (_this->snr_level != gui::mainWindow.getSNRLevelDb(currSrvr))
-                    {
-                        _this->snr_level = std::clamp<int>(gui::mainWindow.getSNRLevelDb(currSrvr), 5, maxSNRLevel);
-                    }
-                    if (!_this->status_auto_level)
-                    {
-                        if (_this->intLevel != gui::mainWindow.getLevelDbSrch(currSrvr))
+                        if (!_this->status_auto_level)
                         {
-                            _this->intLevel = gui::mainWindow.getLevelDbSrch(currSrvr);
+                            if (_this->intLevel != gui::mainWindow.getLevelDbSrch(currSrvr))
+                            {
+                                _this->intLevel = gui::mainWindow.getLevelDbSrch(currSrvr);
+                            }
+                        }
+                        if (gui::mainWindow.getUpdateModule_srch(currSrvr))
+                        {
+                            _first = false;
+                            gui::mainWindow.setFirstConn(NUM_MOD, false);
+                            gui::mainWindow.setUpdateModule_srch(currSrvr, false);
                         }
                     }
-                    if (gui::mainWindow.getUpdateModule_srch(currSrvr))
+                } // --- КОНЕЦ КОРОТКОЙ КРИТИЧЕСКОЙ СЕКЦИИ ---
+
+                // ====================================================================
+                // Фаза 4: Выполнение долгих или блокирующих действий ПОСЛЕ снятия мьютекса
+                // ====================================================================
+
+                // Действие 1: Перезагрузка списка, если нужно
+                if (list_was_updated || id_has_changed)
+                {
+                    if (new_id_from_gui < _this->listNames.size())
                     {
-                        _first = false;
-                        gui::mainWindow.setFirstConn(NUM_MOD, false);
-                        gui::mainWindow.setUpdateModule_srch(currSrvr, false);
+                        std::string new_name = _this->listNames[new_id_from_gui];
+                        flog::info("[workerInfo] Reloading scan list '{0}'", new_name);
+
+                        _this->loadByName(new_name, true);
+
+                        // Обновляем ID и сохраняем выбор в конфиг
+                        _this->selectedListId = new_id_from_gui;
+                        config.acquire();
+                        config.conf["selectedList"] = new_name;
+                        config.release(true);
                     }
                 }
-            } // --- КОНЕЦ КОРОТКОЙ КРИТИЧЕСКОЙ СЕКЦИИ ---
 
-            // ====================================================================
-            // Фаза 4: Выполнение долгих или блокирующих действий ПОСЛЕ снятия мьютекса
-            // ====================================================================
-
-            // Действие 1: Перезагрузка списка, если нужно
-            if (list_was_updated || id_has_changed)
-            {
-                if (new_id_from_gui < _this->listNames.size())
+                // ====================================================================
+                // Фаза 5: ЕДИНАЯ и БЕЗОПАСНАЯ логика START/STOP для ВСЕХ режимов
+                // ====================================================================
+                if (!_this->isARM)
                 {
-                    std::string new_name = _this->listNames[new_id_from_gui];
-                    flog::info("[workerInfo] Reloading scan list '{0}'", new_name);
-
-                    _this->loadByName(new_name, true);
-
-                    // Обновляем ID и сохраняем выбор в конфиг
-                    _this->selectedListId = new_id_from_gui;
-                    config.acquire();
-                    config.conf["selectedList"] = new_name;
-                    config.release(true);
-                }
-            }
-
-            // ====================================================================
-            // Фаза 5: ЕДИНАЯ и БЕЗОПАСНАЯ логика START/STOP для ВСЕХ режимов
-            // ====================================================================
-            if (!_this->isARM)
-            {
-                core::modComManager.callInterface("Airspy", 0, NULL, &_this->_air_recording);
-                bool remote_cmd = gui::mainWindow.getbutton_srch(_this->CurrSrvr);
-                bool is_running_now = _this->running.load();
-                // flog::info("[workerInfo DEBUG] is_running: {0}, remote_cmd_from_gui: {1}, isServer: {2}, isARM: {3}",
-                //           is_running_now, remote_cmd, _this->isServer, _this->isARM);
-                // Сравниваем наше состояние с командой из GUI
-                if (is_running_now != remote_cmd)
-                {
-                    // Обнаружили несоответствие. Проверяем "льготный период".
-                    const auto grace_period = std::chrono::seconds(2);
-                    if ((std::chrono::steady_clock::now() - _this->last_manual_command_time) > grace_period)
+                    core::modComManager.callInterface("Airspy", 0, NULL, &_this->_air_recording);
+                    bool remote_cmd = gui::mainWindow.getbutton_srch(_this->CurrSrvr);
+                    bool is_running_now = _this->running.load();
+                    // flog::info("[workerInfo DEBUG] is_running: {0}, remote_cmd_from_gui: {1}, isServer: {2}, isARM: {3}",
+                    //           is_running_now, remote_cmd, _this->isServer, _this->isARM);
+                    // Сравниваем наше состояние с командой из GUI
+                    if (is_running_now != remote_cmd)
                     {
-                        // Льготный период прошел, значит, это настоящая команда, а не рассинхрон.
-                        flog::info("[workerInfo] State mismatch detected outside grace period. Syncing state...");
+                        // Обнаружили несоответствие. Проверяем "льготный период".
+                        const auto grace_period = std::chrono::seconds(2);
+                        if ((std::chrono::steady_clock::now() - _this->last_manual_command_time) > grace_period)
+                        {
+                            // Льготный период прошел, значит, это настоящая команда, а не рассинхрон.
+                            flog::info("[workerInfo] State mismatch detected outside grace period. Syncing state...");
 
-                        if (remote_cmd)
-                        { // Команда на СТАРТ
-                            if (_this->_air_recording == 1)
-                            {
-                                _this->start();
+                            if (remote_cmd)
+                            { // Команда на СТАРТ
+                                if (_this->_air_recording == 1)
+                                {
+                                    _this->start();
+                                }
+                            }
+                            else
+                            { // Команда на СТОП
+                                flog::info("[workerInfo] stop");
+                                _this->stop();
                             }
                         }
                         else
-                        { // Команда на СТОП
-                            flog::info("[workerInfo] stop");
-                            _this->stop();
+                        {
+                            // Мы внутри льготного периода. Игнорируем несоответствие.
+                            flog::info("[workerInfo] State mismatch detected INSIDE grace period. Ignoring to prevent race condition.");
                         }
-                    }
-                    else
-                    {
-                        // Мы внутри льготного периода. Игнорируем несоответствие.
-                        flog::info("[workerInfo] State mismatch detected INSIDE grace period. Ignoring to prevent race condition.");
                     }
                 }
             }
@@ -2090,9 +2318,9 @@ private:
                     {
                         ImGui::LeftLabel("Час очікування, сек");
                         ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
-                        if (ImGui::InputInt("##linger_timeWait_scanner_2", &_this->_waitingTime, 1, 100))
+                        if (ImGui::InputInt("##linger_timeWait_scanner_2", &_this->_waitingTime, 2, 100))
                         {
-                            _this->_waitingTime = std::clamp<int>(_this->_waitingTime, 1, _this->lingerTime);
+                            _this->_waitingTime = std::clamp<int>(_this->_waitingTime, 2, _this->lingerTime);
                         }
                     }
                     if (_run || _work > 0)
@@ -2669,12 +2897,25 @@ private:
         if (!levels.empty())
         {
             std::sort(levels.begin(), levels.end());
-            int mid = levels.size() / 2;
-            noiseLevel = std::accumulate(levels.begin(), levels.begin() + mid, 0.0f) / mid;
+            int mid = static_cast<int>(levels.size()) / 2;
+
+            // noiseLevel = std::accumulate(levels.begin(), levels.begin() + mid, 0.0f) / mid;
+            // if (noiseLevel < -150.0f)
+            ///    noiseLevel = -150.0f;
+
+            if (mid > 0)
+            {
+                noiseLevel = std::accumulate(levels.begin(), levels.begin() + mid, 0.0f) / mid;
+            }
+            else
+            {
+                // всего один элемент – считаем его шумом
+                noiseLevel = levels.front();
+            }
+
             if (noiseLevel < -150.0f)
                 noiseLevel = -150.0f;
         }
-
         return {max, noiseLevel};
     }
 
@@ -3226,92 +3467,131 @@ private:
     void getSearchLists()
     {
         flog::info("    getSearchLists");
-        void *bbuf = ::operator new(32000); // new uint8_t[MAX_PACKET_SIZE];
-        uint16_t sizeofbbuf = 0;
-        SearchModeList fbm;
+
+        // 1. ИСПОЛЬЗУЕМ ВЕКТОР вместо сырого указателя
+        // Резервируем память, чтобы избежать лишних аллокаций
+        std::vector<uint8_t> bbuf;
+        bbuf.reserve(32000);
+
+        // 2. ИСПОЛЬЗУЕМ make_unique для структуры
+        // Это гарантирует, что память будет очищена, и не нагружает стек
+        auto fbm_ptr = std::make_unique<SearchModeList>();
+        SearchModeList *fbm = fbm_ptr.get();
+
         config.acquire();
+        // Используем 'list' напрямую из итератора
         for (auto [_name, list] : config.conf["lists"].items())
         {
-            // fbm.listName = config.conf["lists"][_name]["listName"];
-            std::string listname = config.conf["lists"][_name]["listName"];
-            strcpy(fbm.listName, listname.c_str());
-            fbm._interval = config.conf["lists"][_name]["_interval"];
-            fbm._level = config.conf["lists"][_name]["_level"];
-            fbm._passbandRatio = config.conf["lists"][_name]["_passbandRatio"];
-            fbm._startFreq = config.conf["lists"][_name]["_startFreq"];
-            fbm._stopFreq = config.conf["lists"][_name]["_stopFreq"];
-            try
-            {
-                fbm._mode = config.conf["lists"][_name]["_mode"];
-            }
-            catch (...)
-            {
-                fbm._mode = 1;
-            }
-            try
-            {
-                fbm._bandwidth = config.conf["lists"][_name]["_bandwidth"];
-            }
-            catch (...)
-            {
-                fbm._bandwidth = 220000;
-            }
-            // flog::info("    listname {0}", listname);
+            // Очищаем структуру нулями перед заполнением (важно для безопасности данных)
+            memset(fbm, 0, sizeof(SearchModeList));
 
-            if (config.conf["lists"][_name]["_status_record"] == true)
-                fbm._status_record = true;
-            else
-                fbm._status_record = false;
-            if (config.conf["lists"][_name]["_status_direction"] == true)
-                fbm._status_direction = true;
-            else
-                fbm._status_direction = false;
-            if (config.conf["lists"][_name]["_status_ignor"] == true)
-                fbm._status_ignor = true;
-            else
-                fbm._status_ignor = false;
-            if (config.conf["lists"][_name]["_status_stop"] == true)
-                fbm._status_stop = true;
-            else
-                fbm._status_stop = false;
-            fbm._tuningTime = config.conf["lists"][_name]["_tuningTime"];
-            fbm._waitingTime = config.conf["lists"][_name]["_waitingTime"];
-            fbm._lingerTime = config.conf["lists"][_name]["_lingerTime"];
-            if (fbm._lingerTime >= maxRecDuration * 1000)
-            {
-                fbm._lingerTime = maxRecDuration * 1000 - 1;
-            }
+            std::string listname = list["listName"];
+
+            // 3. БЕЗОПАСНОЕ КОПИРОВАНИЕ СТРОКИ
+            // sizeof(fbm->listName) - 1 гарантирует место под \0
+            strncpy(fbm->listName, listname.c_str(), sizeof(fbm->listName) - 1);
+
+            // Обращаемся через 'list', а не config.conf["lists"][_name]
+            fbm->_interval = list["_interval"];
+            fbm->_level = list["_level"];
+            fbm->_passbandRatio = list["_passbandRatio"];
+            fbm->_startFreq = list["_startFreq"];
+            fbm->_stopFreq = list["_stopFreq"];
 
             try
             {
-                fbm._selectedLogicId = config.conf["lists"][_name]["_selectedLogicId"];
-                fbm._selectedSrchMode = config.conf["lists"][_name]["_selectedSrchMode"];
+                fbm->_mode = list["_mode"];
             }
             catch (...)
             {
-                fbm._selectedLogicId = 1;
-                fbm._selectedSrchMode = 0;
+                fbm->_mode = 1;
+            }
+            try
+            {
+                fbm->_bandwidth = list["_bandwidth"];
+            }
+            catch (...)
+            {
+                fbm->_bandwidth = 220000;
             }
 
-            fbm.selected = false;
+            // Логика bool (немного упрощена проверка через contains/value, но оставил вашу логику для совместимости)
+            if (list.contains("_status_record") && list["_status_record"] == true)
+                fbm->_status_record = true;
+            else
+                fbm->_status_record = false;
 
-            memcpy(((uint8_t *)bbuf) + sizeofbbuf, (void *)&fbm, sizeof(fbm));
-            sizeofbbuf = sizeofbbuf + sizeof(fbm);
+            if (list.contains("_status_direction") && list["_status_direction"] == true)
+                fbm->_status_direction = true;
+            else
+                fbm->_status_direction = false;
+
+            if (list.contains("_status_ignor") && list["_status_ignor"] == true)
+                fbm->_status_ignor = true;
+            else
+                fbm->_status_ignor = false;
+
+            if (list.contains("_status_stop") && list["_status_stop"] == true)
+                fbm->_status_stop = true;
+            else
+                fbm->_status_stop = false;
+
+            fbm->_tuningTime = list["_tuningTime"];
+            fbm->_waitingTime = list["_waitingTime"];
+            fbm->_lingerTime = list["_lingerTime"];
+
+            if (fbm->_lingerTime >= maxRecDuration * 1000)
+            {
+                fbm->_lingerTime = maxRecDuration * 1000 - 1;
+            }
+
+            try
+            {
+                fbm->_selectedLogicId = list["_selectedLogicId"];
+                fbm->_selectedSrchMode = list["_selectedSrchMode"];
+            }
+            catch (...)
+            {
+                fbm->_selectedLogicId = 1;
+                fbm->_selectedSrchMode = 0;
+            }
+
+            fbm->selected = false;
+
+            // 4. ЗАЩИТА ОТ ПЕРЕПОЛНЕНИЯ БУФЕРА
+            // Если следующий элемент не влезает в 32000 (или другой лимит), останавливаемся
+            if (bbuf.size() + sizeof(SearchModeList) > 32000)
+            {
+                flog::warn("getSearchLists: Buffer full (32000 bytes). Truncating list.");
+                break;
+            }
+
+            // Добавляем данные структуры в конец вектора
+            const uint8_t *pData = reinterpret_cast<const uint8_t *>(fbm);
+            bbuf.insert(bbuf.end(), pData, pData + sizeof(SearchModeList));
         }
         config.release();
 
-        gui::mainWindow.setbbuf_srch(bbuf, sizeofbbuf);
-        ::operator delete(bbuf);
+        // 5. ПЕРЕДАЧА ДАННЫХ
+        // bbuf.data() возвращает указатель, bbuf.size() возвращает размер
+        gui::mainWindow.setbbuf_srch(bbuf.data(), bbuf.size());
+
+        // delete вызывать не нужно, вектор очистится сам
+
         gui::mainWindow.setselectedLogicId(gui::mainWindow.getCurrServer(), selectedLogicId);
         gui::mainWindow.setidOfList_srch(gui::mainWindow.getCurrServer(), selectedListId);
         gui::mainWindow.setUpdateMenuSnd5Srch(MAX_SERVERS, true);
         gui::mainWindow.setUpdateListRcv5Srch(MAX_SERVERS, true);
-        flog::warn("SEARCH (msgSearch) sizeofbbuf: {0}, gui::mainWindow.getUpdateMenuSnd5Srch {1}, fbm._status_direction {2}, selectedListId {3}, gui::mainWindow.getCurrServer() {4}", sizeofbbuf, gui::mainWindow.getUpdateMenuSnd5Srch(CurrSrvr), fbm._status_direction, selectedListId, gui::mainWindow.getCurrServer());
+
+        flog::warn("SEARCH (msgSearch) size: {0}, gui::mainWindow.getUpdateMenuSnd5Srch {1}, selectedListId {2}",
+                   bbuf.size(),
+                   gui::mainWindow.getUpdateMenuSnd5Srch(CurrSrvr),
+                   selectedListId);
     }
 
     void loadFirst()
     {
-        flog::info("!!!! loadFirst");
+        // flog::info("!!!! loadFirst");
         if (listNames.size() > 0)
         {
             loadByName(listNames[0], false);
@@ -3324,7 +3604,7 @@ private:
 
     void loadByName(std::string listName, bool _search)
     {
-        flog::info("!!!! loadByName");
+        // flog::info("!!!! loadByName");
         book.clear();
         if (std::find(listNames.begin(), listNames.end(), listName) == listNames.end())
         {
@@ -4086,9 +4366,6 @@ private:
     int WAIT_MS = (maxRecShortDur_sec + 2) * 1000 + 300;
     int MAX_WAIT_MS = (maxRecShortDur_sec) * 1000 + 200;
     int ADD_WAIT_MS = 0;
-    // AutoLavel
-    // bool getflag_level[MAX_SERVERS] = { false, false, false, false, false, false, false, false };
-    // int getgen_level[MAX_SERVERS] = { -70, -70, -70, -70, -70, -70, -70, -70 };
     bool initial_find_level = true;
     double sigmentLeft, sigmentRight;
     const double scan_band = 12500.0; // Шаг сканирования в Гц
@@ -4100,6 +4377,7 @@ private:
     int signal_lost_counter = 0;
     int signal_returned_counter = 0;
     int _air_recording = 1;
+    std::mutex classMtx;
 };
 
 // =================================================================================================

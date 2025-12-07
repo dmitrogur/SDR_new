@@ -1038,26 +1038,31 @@ private:
                 // _this->update_menu = true;
             }
         }
-        // Squelch
-        _this->squelchEnabled = false;
-        /*
-        if (ImGui::Checkbox(("Рівень ШП##_radio_sqelch_ena_" + _this->name).c_str(), &_this->squelchEnabled)) {
-            _this->setSquelchEnabled(_this->squelchEnabled);
-            _this->update_menu = true;
-        }
-        if (!_this->squelchEnabled && _this->enabled) { style::beginDisabled(); }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
-        if (ImGui::SliderFloat(("##_radio_sqelch_lvl_" + _this->name).c_str(), &_this->squelchLevel, _this->MIN_SQUELCH, _this->MAX_SQUELCH, "%.3fдБ")) {
-            _this->setSquelchLevel(_this->squelchLevel);
-            _this->update_menu = true;
-        }
-        if (!_this->squelchEnabled && _this->enabled) { style::endDisabled(); }
-        */
         if (_this->Admin)
         {
-            // FM IF Noise Reduction
+            // Squelch
+            if (ImGui::Checkbox(("Рівень ШП##_radio_sqelch_ena_" + _this->name).c_str(), &_this->squelchEnabled))
+            {
+                _this->setSquelchEnabled(_this->squelchEnabled);
+                _this->update_menu = true;
+            }
+            if (!_this->squelchEnabled && _this->enabled)
+            {
+                style::beginDisabled();
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
+            if (ImGui::SliderFloat(("##_radio_sqelch_lvl_" + _this->name).c_str(), &_this->squelchLevel, _this->MIN_SQUELCH, _this->MAX_SQUELCH, "%.3fдБ"))
+            {
+                _this->setSquelchLevel(_this->squelchLevel);
+                _this->update_menu = true;
+            }
+            if (!_this->squelchEnabled && _this->enabled)
+            {
+                style::endDisabled();
+            }
 
+            // FM IF Noise Reduction
             if (_this->FMIFNRAllowed)
             {
                 if (ImGui::Checkbox(("Зменшення шуму ПЧ##_radio_fmifnr_ena_" + _this->name).c_str(), &_this->FMIFNREnabled))
@@ -1087,6 +1092,7 @@ private:
         }
         else
         {
+            _this->squelchEnabled = false;
             _this->FMIFNREnabled = false;
         }
 
@@ -1225,9 +1231,9 @@ private:
             return;
         }
         selectedDemodID = id;
-        flog::info("selectedDemodID {0}", selectedDemodID);
+        // flog::info("selectedDemodID {0}", selectedDemodID);
         selectDemod(demod);
-        flog::info("selectDemod");
+        // flog::info("selectDemod");
         // Save config
         config.acquire();
         config.conf[name]["selectedDemodId"] = id;
@@ -1558,7 +1564,7 @@ private:
 
     void setBandwidth(double bw)
     {
-        flog::info("setBandwidth {0}", bw);
+        // flog::info("setBandwidth {0}", bw);
         int max_bw = bandwidthsList[bandwidthsList.size() - 1];
         if (max_bw > maxBandwidth)
             max_bw = maxBandwidth;
@@ -1802,7 +1808,7 @@ private:
 
     static void moduleInterfaceHandler(int code, void *in, void *out, void *ctx)
     {
-        RadioModule *_this = (RadioModule *)ctx;        
+        RadioModule *_this = (RadioModule *)ctx;
         if (!_this->enabled || !_this->selectedDemod)
         {
             return;

@@ -1,8 +1,9 @@
-#include "remote_radio.h"
+// RemoteRadio.cpp
 #include <utils/flog.h>
 #include <gui/gui.h>
 #include <utils/networking.h>
 // #include <server_protocol.h>
+#include <memory>
 
 #include <arpa/inet.h>  // inet_pton, htons и др.
 #include <sys/socket.h> // socket(), sendto()
@@ -25,11 +26,23 @@
 #include <gui/menus/source.h>
 #include <signal_path/sink.h>
 
+#include <pqxx/pqxx> // libpqxx
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <optional>
+#include <fstream>
+#include <vector>
+#include <algorithm>
+#include <stdexcept> // Для std::runtime_error
+
+#include "remote_radio.h"
+
+using json = nlohmann::json;
+
 namespace remote
 {
 
-    std::atomic<bool> stopUdpSender{false};
-    std::atomic<bool> stopworkerThread{false};
     struct MainConfig
     {
         uint8_t id;
@@ -57,7 +70,7 @@ namespace remote
         bool statAutoLevelSrch = true;
         bool statAutoLevelScan = true;
         bool statAutoLevelCtrl = true;
-        int SNRLevelDbSrch = -70;
+        int SNRLevelDbSrch = -20;
         bool status_AKFSrch = false;
         bool status_AKFCtrl = false;
         int maxRecWaitTimeCtrl = 5;
@@ -89,7 +102,7 @@ namespace remote
         int setLevelDbSrch = 0;
         int setLevelDbScan = 0;
         int setLevelDbCtrl = 0;
-        int SNRLevelDbSrch = -70;
+        int SNRLevelDbSrch = -50;
         bool status_AKFSrch = false;
         bool status_AKFCtrl = false;
         bool UpdateStat = false;
@@ -161,6 +174,27 @@ namespace remote
         bool UpdateMenu = false;
         bool statAutoLevel = false;
     };
+    struct SearchModeList
+    {
+        char listName[32];
+        int _mode;
+        double _bandwidth;
+        double _startFreq;
+        double _stopFreq;
+        double _interval;
+        double _passbandRatio;
+        int _tuningTime;   //  = 350;
+        bool _status_stop; // = false;
+        int _waitingTime;  //  = 1000
+        bool _status_record;
+        int _lingerTime;    //
+        bool _status_ignor; //
+        int _level;         //  = -50.0
+        bool selected;
+        bool _status_direction;
+        int _selectedLogicId;
+        int _selectedSrchMode;
+    };
     // SEARCH STAT
     struct FoundBookmark
     {
@@ -207,14 +241,8 @@ namespace remote
     net::Conn conn;
     net::Conn connInfo;
     uint8_t *bbuf = NULL;
-    // std::unique_ptr<uint8_t[]> bbuf;
     InfoHeader *bb_pkt_hdr = NULL;
     uint8_t *bb_pkt_data = NULL;
-    // uint8_t* ib_pkt_data = NULL;
-
-    // В файле remote_radio.cpp
-
-    // В файле remote_radio.cpp
 
     static void clientHandler(net::Conn client_conn, void *ctx)
     {
@@ -238,7 +266,7 @@ namespace remote
 
         // 2. Сразу же снова начинаем слушать следующего клиента.
         //    Это позволит принять новое подключение, даже пока мы работаем с текущим.
-        if (listener && !_this->stopAudioSender)
+        if (listener && !_this->stopAudioSender.load())
         { // Проверяем, что listener еще жив
             listener->acceptAsync(clientHandler, _this);
             flog::info("[clientHandler] Re-armed listener to accept next client.");
@@ -261,7 +289,6 @@ namespace remote
         }
         // flog::info("!!!!!!!!!! [SERVER] clientHandler finished for one client. !!!!!!!!!!");
     }
-
     static void clientInfoHandler(net::Conn client2, void *ctx)
     {
         RemoteRadio *_this = (RemoteRadio *)ctx;
@@ -276,14 +303,14 @@ namespace remote
             _this->changed = true;
             flog::info("rcv connInfo changed {0}", _this->changed);
 
-            stopworkerThread = true;
+            _this->stopworkerThread = true;
             _this->socket_work = true;
             if (_this->workerThread.joinable())
             {
                 _this->workerThread.join();
             }
 
-            stopworkerThread = false;
+            _this->stopworkerThread = false;
 
             flog::info("workerThread!!");
 
@@ -313,6 +340,8 @@ namespace remote
 
     RemoteRadio::~RemoteRadio()
     {
+        stopUdpSender = true;
+        stopUdpDBSender = true;
         flog::info("RemoteRadio destructor called.");
         closeProgramm.store(true);
         stop();
@@ -320,6 +349,22 @@ namespace remote
         {
             delete[] bbuf;
             bbuf = nullptr;
+        }
+        if (workerThread.joinable())
+        {
+            flog::info("Joining workerThread...");
+            workerThread.join();
+        }
+        if (senderUDP.joinable())
+        {
+            flog::info("Joining senderUDP...");
+            senderUDP.join();
+        }
+
+        if (senderDbUDP.joinable())
+        {
+            flog::info("Joining senderDbUDP...");
+            senderDbUDP.join();
         }
     }
 
@@ -364,6 +409,18 @@ namespace remote
             core::configManager.conf["IsNotPlaying"] = isNotPlaying;
             _update = true;
         }
+
+        available = core::configManager.conf.contains("AsterPlus");
+        if (available)
+        {
+            isAsterPlus = core::configManager.conf["AsterPlus"];
+        }
+        else
+        {
+            isAsterPlus = false;
+            core::configManager.conf["AsterPlus"] = isAsterPlus;
+            _update = true;
+        }
         if (isServer)
         {
             try
@@ -398,6 +455,7 @@ namespace remote
         // _init = true;
         stopworkerThread = false;
         stopUdpSender = false;
+        stopUdpDBSender = false;
     }
 
     // startListener
@@ -418,6 +476,10 @@ namespace remote
             flog::info("Ready, listening on {0}:{1}", host, port + 2);
             // while(1) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); }
         }
+        else
+        {
+            flog::warn("Error listenerInfo = net::listen {0}:{1}", host, port + 2);
+        }
 
         flog::info("RemoteRadio::start() called.");
         bool expected = false;
@@ -429,18 +491,59 @@ namespace remote
 
         flog::info("RemoteRadio::start() - First entry. Starting components...");
 
+        audioQueue.reset();
+
         sigpath::iqFrontEnd.tempStop();
         sigpath::iqFrontEnd.bindIQStream(&inputStream);
         sigpath::iqFrontEnd.tempStart();
 
         hnd.start();
 
-        stopAudioSender = false;
+        stopAudioSender.store(false);
+        stopUdpSender = false;
+        stopUdpDBSender = false;
+        info_udp = 100;
 
+        // isAsterPlus = true;
+
+        int instNum = std::stoi(nameInstance); // "1" -> 1
+        int dbPort = 48000 + instNum;          // 48001 .. 48008
+
+        const char *kConnStrAster = "host=192.168.88.10 user=aster password=aster dbname=ASTER connect_timeout=3";
+        const char *kConnStrMalva = "host=192.168.30.100 user=aster password=aster dbname=ASTER connect_timeout=3";
         if (radioMode == 0)
-            senderUDP = std::thread(&RemoteRadio::udpSenderThread, this, "192.168.88.11", 45712, "rpm1v.1.2.4");
+        {
+            this->kConnStr = kConnStrAster;
+
+            // телеметрия (ARM)
+            this->senderUDP = std::thread(&RemoteRadio::udpReceiverWorker,
+                                          this,
+                                          "192.168.88.11", // ARM
+                                          45712,
+                                          "rpm1v.1.2.4");
+
+            // DBSEND/DBACK + БД (ARM+, тот же IP что и ARM, но порт 4800X)
+            this->senderDbUDP = std::thread(&RemoteRadio::udpDbWorker,
+                                            this,
+                                            "192.168.88.11",
+                                            dbPort);
+        }
         else
-            senderUDP = std::thread(&RemoteRadio::udpSenderThread, this, "192.168.30.100", 45712, "rpm1v.1.2.4"); // 172.128.150.1
+        {
+            this->kConnStr = kConnStrMalva;
+
+            this->senderUDP = std::thread(&RemoteRadio::udpReceiverWorker,
+                                          this,
+                                          "192.168.30.100",
+                                          45712,
+                                          "rpm1v.1.2.4");
+
+            this->senderDbUDP = std::thread(&RemoteRadio::udpDbWorker,
+                                            this,
+                                            "192.168.30.100",
+                                            dbPort);
+        }
+
         if (!isNotPlaying)
         {
             // НОВОЕ: Перед запуском comp и hnd, подписываем наш внутренний поток на IQFrontEnd
@@ -480,8 +583,9 @@ namespace remote
         flog::info("RemoteRadio::stop() - Shutting down...");
 
         // Устанавливаем флаги, чтобы потоки знали, что нужно завершаться
-        stopAudioSender = true;
+        stopAudioSender.store(true);
         stopUdpSender = true;
+        stopUdpDBSender = true;
         stopworkerThread = true;
 
         // Закрываем сокеты, чтобы разблокировать потоки
@@ -511,15 +615,15 @@ namespace remote
             audioQueue.request_stop();
             audioSenderThread.join();
         }
-        if (workerThread.joinable())
-        { // <-- ДОБАВЛЕНО
-            workerThread.join();
-        }
+    
         if (senderUDP.joinable())
         {
             senderUDP.join();
         }
-
+        if (senderDbUDP.joinable())
+        {
+            senderDbUDP.join();
+        }
         hnd.stop();
 
         if (_init && sigpath::iqFrontEnd.isInitialized())
@@ -528,102 +632,23 @@ namespace remote
         }
         flog::info("RemoteRadio::stop() finished successfully.");
     }
-    /*
-    void RemoteRadio::stop()
-    {
-        bool expected = true;
-        if (!_running.compare_exchange_strong(expected, false))
-        {
-            return;
-        }
-        flog::info("RemoteRadio::stop() - Shutting down...");
 
-        // 2. Закрываем активное DATA соединение.
-        if (conn)
-        { // <-- Здесь isOpen() нужен и он есть у net::Conn
-            conn->close();
-        }
-        flog::info("RemoteRadio::stop() - conn->close() OK");
-        // if (closeProgramm.load())
-        // {
-        if (connInfo)
-        {
-            connInfo->close();
-        }
-        flog::info("RemoteRadio::stop() - conn->close() OK");
-        //}
-
-        // 1. Закрываем слушающий сокет.
-        if (listener)
-        { // <-- УБРАЛИ ПРОВЕРКУ isOpen()
-            listener->close();
-        }
-
-        flog::info("RemoteRadio::stop() - listener->close OK");
-
-        if (listenerInfo)
-        {
-            listenerInfo->close();
-        }
-        flog::info("RemoteRadio::stop() - listenerInfo->close OK");
-
-        if (closeProgramm.load())
-        {
-            // 3. Останавливаем все потоки
-            if (audioSenderThread.joinable())
-            {
-                stopAudioSender = true;
-                audioQueue.request_stop();
-                audioSenderThread.join();
-            }
-            flog::info("RemoteRadio::connInfo() - audioSenderThread OK");
-        }
-
-        if (workerThread.joinable())
-        {
-            workerThread.join();
-        }
-
-        flog::info("RemoteRadio::connInfo() - workerThread OK");
-
-        if (senderUDP.joinable())
-        {
-            stopUdpSender = true;
-            senderUDP.join();
-        }
-
-        flog::info("RemoteRadio::connInfo() - senderUDP OK");
-
-        // 4. Останавливаем DSP
-        hnd.stop();
-
-        flog::info("RemoteRadio::connInfo() - hnd.stop OK");
-
-        // 5. Отписываемся от iqFrontEnd
-        if (_init && sigpath::iqFrontEnd.isInitialized())
-        {
-            sigpath::iqFrontEnd.unbindIQStream(&inputStream);
-        }
-
-        flog::info("RemoteRadio::stop() finished successfully.");
-    }
-    */
     void RemoteRadio::audioSenderWorker()
     {
         flog::info("IQ sender thread started.");
 
-        while (!stopAudioSender)
+        while (!stopAudioSender.load())
         {
             // --- ФАЗА 1: ЖДАТЬ КЛИЕНТА ---
             // Используем `while` вместо `if`. Поток будет здесь "висеть",
             // пока `conn` не станет валидным или пока программу не закроют.
-            while ((!conn || !conn->isOpen()) && !stopAudioSender)
+            while ((!conn || !conn->isOpen()) && !stopAudioSender.load())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
 
             // Если вышли из цикла ожидания, потому что программу закрывают
-            if (stopAudioSender)
+            if (stopAudioSender.load())
             {
                 break;
             }
@@ -633,7 +658,7 @@ namespace remote
             // --- ФАЗА 2: ПЕРЕДАЧА ДАННЫХ ---
             std::vector<dsp::complex_t> data_chunk;
             // Цикл, пока соединение живо и программу не закрывают
-            while (conn && conn->isOpen() && !stopAudioSender)
+            while (conn && conn->isOpen() && !stopAudioSender.load())
             {
                 // Используем твой метод pop(), который блокирует, пока не появятся данные
                 // или пока очередь не будет остановлена.
@@ -649,15 +674,38 @@ namespace remote
                         conn->close();
                         break; // Выходим из внутреннего цикла отправки
                     }
+                    // Проверяем состояние сокета СРАЗУ ПОСЛЕ успешной записи.
+                    if (!conn->isOpen())
+                    {
+                        flog::error("IQ SENDER CRITICAL: Connection closed IMMEDIATELY after a successful write!");
+                    }
                 }
                 else
                 {
+                    if (stopAudioSender.load())
+                    {
+                        break; // Если остановили, то выходим
+                    }
                     // audioQueue.pop() вернула false, значит, была вызвана request_stop().
                     // Это сигнал к завершению потока.
-                    break; // Выходим из внутреннего цикла отправки
+                    // flog::error("IQ SENDER CRITICAL FAILURE: audioQueue.pop() returned FALSE. The value of stopAudioSender is: {0}", stopAudioSender.load());
+                    // break; // Выходим из внутреннего цикла отправки
+                    continue;
                 }
             }
-            flog::info("IQ SENDER: Data loop finished. Waiting for new client.");
+            // ОТЛАДКА: Выясняем, почему именно мы вышли из цикла
+            if (!conn)
+            {
+                flog::warn("IQ SENDER: Loop exited because conn is NULL.");
+            }
+            else if (!conn->isOpen())
+            {
+                flog::warn("IQ SENDER: Loop exited because conn->isOpen() is FALSE.");
+            }
+            else if (stopAudioSender.load())
+            {
+                flog::warn("IQ SENDER: Loop exited because stopAudioSender is TRUE.");
+            }
         }
         flog::info("IQ sender thread stopped.");
     }
@@ -750,6 +798,9 @@ namespace remote
                     bool send_radio = false;
                     bool send_main = false;
                     bool send_record = false;
+                    bool send_search = false; // NEW
+                    bool send_scan = false;   // NEW
+                    bool send_ctrl = false;   // NEW
 
                     // flog::info("TRACE SND SrvStatus {0}, ", SrvStatus);
                     if (SrvStatus == ARM_STATUS_FULL_CONTROL && gui::mainWindow.getUpdateMenuSnd())
@@ -806,8 +857,8 @@ namespace remote
                         // gui::mainWindow.setUpdateMenuSnd2Radio(false);
                         send_radio = true;
                     }
-                    else if (gui::mainWindow.getUpdateMenuSnd3Record()) // SrvStatus == ARM_STATUS_FULL_CONTROL &&
-                    {                                                   // RADIO
+                    else if (gui::mainWindow.getUpdateMenuSnd3Record())              // SrvStatus == ARM_STATUS_FULL_CONTROL &&
+                    {                                                                // RADIO
                         msgRecord.recording = gui::mainWindow.getServerRecording(0); // gui::mainWindow.getRecording();
                         if (SrvStatus == 2)
                             msgRecord.UpdateMenu = true;
@@ -850,6 +901,153 @@ namespace remote
                         memcpy(&ibuf[sizeof(InfoHeader)], (uint8_t *)&msgMain, sizeof(msgMain));
                         send_main = true;
                         gui::mainWindow.setUpdateMenuSnd0Main(0, false);
+                    }
+                    else if (SrvStatus > ARM_STATUS_NOT_CONTROL && gui::mainWindow.getUpdateMenuSnd5Srch(0))
+                    {
+                        // --- NEW: РПМ -> АРМ: SEARCH CONFIG ---
+                        msgSearch.selectedLogicId = gui::mainWindow.getselectedLogicId(0);
+                        msgSearch.idOfList_srch = gui::mainWindow.getidOfList_srch(0);
+                        msgSearch.button_srch = gui::mainWindow.getbutton_srch(0);
+                        msgSearch.levelDb = gui::mainWindow.getLevelDbSrch(0);
+                        msgSearch.SNRlevelDb = gui::mainWindow.getSNRLevelDb(0);
+                        msgSearch.status_AKF = gui::mainWindow.getAKFInd(0);
+                        msgSearch.UpdateModule = gui::mainWindow.getUpdateModule_srch(0);
+                        msgSearch.UpdateLists = gui::mainWindow.getUpdateLists_srch();
+                        msgSearch.statAutoLevel = gui::mainWindow.getAuto_levelSrch(0);
+                        msgSearch.UpdateMenu = true;
+
+                        ib_pkt_hdr->type = PACKET_TYPE_SEARCH;
+                        ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgSearch);
+                        ib_pkt_hdr->sizeOfExtension = 0;
+
+                        memcpy(&ibuf[sizeof(InfoHeader)], (uint8_t *)&msgSearch, sizeof(msgSearch));
+
+                        if (msgSearch.UpdateLists)
+                        {
+                            int extSize = gui::mainWindow.getsizeOfbbuf_srch();
+                            const size_t maxSize = 256 * MAX_STRUCT_SIZE;
+                            size_t totalSize = ib_pkt_hdr->size + (size_t)extSize;
+                            if (extSize > 0 && totalSize <= maxSize)
+                            {
+                                ib_pkt_hdr->sizeOfExtension = extSize;
+                                memcpy(&ibuf[ib_pkt_hdr->size],
+                                       (void *)gui::mainWindow.getbbuf_srch(),
+                                       extSize);
+                                ib_pkt_hdr->size = (uint32_t)totalSize;
+                            }
+                            else if (totalSize > maxSize)
+                            {
+                                flog::error("PACKET_TYPE_SEARCH: totalSize {0} > maxSize {1}, drop extension",
+                                            totalSize, maxSize);
+                                ib_pkt_hdr->sizeOfExtension = 0;
+                            }
+                        }
+
+                        flog::info("PACKET_TYPE_SEARCH (RPM->ARM). Send. idOfList {0}, size {1}, ext {2}",
+                                   msgSearch.idOfList_srch, ib_pkt_hdr->size, ib_pkt_hdr->sizeOfExtension);
+
+                        send_search = true;
+                    }
+                    else if (SrvStatus > ARM_STATUS_NOT_CONTROL && gui::mainWindow.getUpdateMenuSnd6Scan(0))
+                    {
+                        // --- NEW: РПМ -> АРМ: SCAN CONFIG ---
+                        msgScan.idOfList_scan = gui::mainWindow.getidOfList_scan(0);
+                        msgScan.button_scan = gui::mainWindow.getbutton_scan(0);
+                        msgScan.maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_scan(0);
+                        msgScan.maxRecDuration = gui::mainWindow.getMaxRecDuration_scan(0);
+                        msgScan.flag_level = true;
+                        msgScan.level = gui::mainWindow.getLevelDbScan(0);
+                        msgScan.statAutoLevel = gui::mainWindow.getAuto_levelScan(0);
+                        msgScan.UpdateModule = gui::mainWindow.getUpdateModule_scan(0);
+                        msgScan.UpdateLists = gui::mainWindow.getUpdateLists_scan();
+                        msgScan.UpdateMenu = true;
+
+                        int extSize = 0;
+                        if (msgScan.UpdateLists)
+                            extSize = gui::mainWindow.getsizeOfbbuf_scan();
+
+                        const size_t maxSize = 256 * MAX_STRUCT_SIZE;
+                        size_t totalSize = sizeof(InfoHeader) + sizeof(msgScan) + (size_t)extSize;
+                        if (totalSize > maxSize)
+                        {
+                            flog::error("PACKET_TYPE_SCAN: totalSize {0} > maxSize {1}, drop packet", totalSize, maxSize);
+                            gui::mainWindow.setUpdateMenuSnd6Scan(0, false);
+                        }
+                        else
+                        {
+                            ib_pkt_hdr->type = PACKET_TYPE_SCAN;
+                            ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgScan);
+                            ib_pkt_hdr->sizeOfExtension = 0;
+
+                            memcpy(&ibuf[sizeof(InfoHeader)], (uint8_t *)&msgScan, sizeof(msgScan));
+
+                            if (msgScan.UpdateLists && extSize > 0)
+                            {
+                                ib_pkt_hdr->sizeOfExtension = extSize;
+                                memcpy(&ibuf[ib_pkt_hdr->size],
+                                       (void *)gui::mainWindow.getbbuf_scan(),
+                                       extSize);
+                                ib_pkt_hdr->size += extSize;
+                            }
+
+                            flog::info("PACKET_TYPE_SCAN (RPM->ARM). Send. idOfList {0}, size {1}, ext {2}",
+                                       msgScan.idOfList_scan, ib_pkt_hdr->size, ib_pkt_hdr->sizeOfExtension);
+                            send_scan = true;
+                        }
+                    }
+                    else if (SrvStatus > ARM_STATUS_NOT_CONTROL && gui::mainWindow.getUpdateMenuSnd7Ctrl(0))
+                    {
+                        // --- NEW: РПМ -> АРМ: CTRL CONFIG ---
+                        msgCTRL.idOfList_ctrl = gui::mainWindow.getidOfList_ctrl(0);
+                        msgCTRL.button_ctrl = gui::mainWindow.getbutton_ctrl(0);
+                        msgCTRL.flag_level = gui::mainWindow.getflag_level_ctrl(0);
+                        msgCTRL.level = gui::mainWindow.getLevelDbCtrl(0);
+                        msgCTRL.maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_ctrl(0);
+                        msgCTRL.statAutoLevel = gui::mainWindow.getAuto_levelCtrl(0);
+                        msgCTRL.status_AKF = gui::mainWindow.getAKFInd_ctrl(0);
+
+                        msgCTRL.UpdateModule = gui::mainWindow.getUpdateModule_ctrl(0);
+                        msgCTRL.UpdateMenu = true;
+
+                        // Смотрим на реальный размер буфера, а не на флаг
+                        int extSize = gui::mainWindow.getsizeOfbbuf_ctrl();
+                        bool haveList = (extSize > 0);
+                        msgCTRL.UpdateLists = haveList;
+
+                        ib_pkt_hdr->type = PACKET_TYPE_CTRL;
+                        ib_pkt_hdr->size = sizeof(InfoHeader) + sizeof(msgCTRL);
+                        ib_pkt_hdr->sizeOfExtension = 0;
+
+                        memcpy(&ibuf[sizeof(InfoHeader)], (uint8_t *)&msgCTRL, sizeof(msgCTRL));
+
+                        if (haveList)
+                        {
+                            const size_t maxSize = 256 * MAX_STRUCT_SIZE;
+                            size_t totalSize = ib_pkt_hdr->size + (size_t)extSize;
+                            if (totalSize <= maxSize)
+                            {
+                                ib_pkt_hdr->sizeOfExtension = extSize;
+                                memcpy(&ibuf[ib_pkt_hdr->size],
+                                       (void *)gui::mainWindow.getbbuf_ctrl(),
+                                       extSize);
+                                ib_pkt_hdr->size = (uint32_t)totalSize;
+                            }
+                            else
+                            {
+                                flog::error("PACKET_TYPE_CTRL: totalSize {0} > maxSize {1}, drop extension",
+                                            totalSize, maxSize);
+                                ib_pkt_hdr->sizeOfExtension = 0;
+                            }
+                        }
+
+                        flog::info("PACKET_TYPE_CTRL (RPM->ARM). Send. idOfList {0}, size {1}, ext {2}",
+                                   msgCTRL.idOfList_ctrl, ib_pkt_hdr->size, ib_pkt_hdr->sizeOfExtension);
+
+                        bool flagUpdate = gui::mainWindow.getUpdateListRcv7Ctrl(0);
+
+                        flog::info("RPM CTRL SEND: UpdateMenuSnd7Ctrl={0}, UpdateListRcv7Ctrl(0)={1}, extSize={2}",
+                                   gui::mainWindow.getUpdateMenuSnd7Ctrl(0), flagUpdate, extSize);
+                        send_ctrl = true;
                     }
                     else if (SrvStatus == ARM_STATUS_FULL_CONTROL && gui::mainWindow.getUpdateStatSnd5Srch() == true)
                     { // SEARCH STAT
@@ -1112,26 +1310,60 @@ namespace remote
                         }
                     }
                     else if (ib_pkt_hdr->type == PACKET_TYPE_SCAN)
-                    { // SEARCH //  && SrvStatus > ARM_STATUS_NOT_CONTROL
+                    {
+                        // 1. Сначала вычисляем размер "полезной нагрузки" без расширения
+                        // count - это общий размер данных пакета (без заголовка InfoHeader)
+                        int msgSize = count;
                         if (ib_pkt_hdr->sizeOfExtension > 0)
-                            count = count - ib_pkt_hdr->sizeOfExtension;
-                        // flog::info("PACKET_TYPE_SCAN. 1. count {0}", count);
-                        memcpy(&msgScan, &ibuf[sizeof(InfoHeader)], count);
+                        {
+                            msgSize = count - ib_pkt_hdr->sizeOfExtension;
+                        }
+
+                        // Защита: не копируем, если пришло меньше, чем размер структуры
+                        if (msgSize < sizeof(msgScan))
+                        {
+                            flog::error("Received SCAN packet too small: {0} < {1}", msgSize, sizeof(msgScan));
+                        }
+                        else
+                        {
+                            memcpy(&msgScan, &ibuf[sizeof(InfoHeader)], sizeof(msgScan));
+                        }
+
+                        // 2. Обработка расширения (Списки частот)
                         if (ib_pkt_hdr->sizeOfExtension > 0 && !gui::mainWindow.getbutton_scan(0))
                         {
-                            void *bbufRCV = ::operator new(ib_pkt_hdr->sizeOfExtension);
-                            memcpy(bbufRCV, &ibuf[sizeof(InfoHeader) + count], ib_pkt_hdr->sizeOfExtension);
-                            gui::mainWindow.setbbuf_scan(bbufRCV, ib_pkt_hdr->sizeOfExtension);
-                            gui::mainWindow.setUpdateListRcv6Scan(0, true);
-                            ::operator delete(bbufRCV);
-                            /*
-                            for (int poz = 0; poz < sizeofbbuf; poz = poz + sizeof(fbm)) {
-                                memcpy(&fbm, ((void*)bbuf) + poz, sizeof(fbm));
-                                std::string listname = std::string(fbm.listName);
-                                // strcpy(listname.c_str(), );
-                                flog::info("!!!! poz {0}, fbm.listName {1}, listname {1}  ", poz, fbm.listName, listname);
+                            // Проверка на адекватность размера
+                            if (ib_pkt_hdr->sizeOfExtension > 2000000)
+                            { // 2 MB limit
+                                flog::error("Invalid extension size: {0}", ib_pkt_hdr->sizeOfExtension);
                             }
-                            */
+                            else
+                            {
+                                // Используем вектор для безопасного копирования
+                                try
+                                {
+                                    std::vector<uint8_t> tempBuf(ib_pkt_hdr->sizeOfExtension);
+
+                                    // ВАЖНО: Смещение = Заголовок + Структура Настроек
+                                    // Это надежнее, чем использовать переменную count
+                                    size_t dataOffset = sizeof(InfoHeader) + sizeof(msgScan);
+
+                                    // Копируем данные из ibuf во временный вектор
+                                    memcpy(tempBuf.data(), &ibuf[dataOffset], ib_pkt_hdr->sizeOfExtension);
+
+                                    // Передаем в GUI (там должно происходить копирование внутрь)
+                                    gui::mainWindow.setbbuf_scan(tempBuf.data(), ib_pkt_hdr->sizeOfExtension);
+
+                                    // Сигнализируем, что данные приняты
+                                    gui::mainWindow.setUpdateListRcv6Scan(0, true);
+
+                                    // tempBuf уничтожится здесь, но setbbuf_scan должен был скопировать данные
+                                }
+                                catch (const std::exception &e)
+                                {
+                                    flog::error("Receiver allocation error: {0}", e.what());
+                                }
+                            }
                         }
                         gui::mainWindow.setidOfList_scan(0, msgScan.idOfList_scan);
                         if (msgScan.UpdateMenu)
@@ -1148,6 +1380,7 @@ namespace remote
                             gui::mainWindow.setUpdateMenuSnd6Scan(0, false);
                         }
                     }
+                    /*
                     else if (ib_pkt_hdr->type == PACKET_TYPE_CTRL)
                     { // CTRL
                         flog::info("PACKET_TYPE_CTRL. RCV. msgCTRL.UpdateMenu {0}, msgCTRL.button_ctrl {1}, ib_pkt_hdr->sizeOfExtension {2}", msgCTRL.UpdateMenu, msgCTRL.button_ctrl, ib_pkt_hdr->sizeOfExtension);
@@ -1161,20 +1394,12 @@ namespace remote
                             gui::mainWindow.setbbuf_ctrl(bbufRCV, ib_pkt_hdr->sizeOfExtension);
                             ::operator delete(bbufRCV);
                             gui::mainWindow.setUpdateListRcv7Ctrl(0, true);
-                            /*
-                            for (int poz = 0; poz < sizeofbbuf; poz = poz + sizeof(fbm)) {
-                                memcpy(&fbm, ((void*)bbuf) + poz, sizeof(fbm));
-                                std::string listname = std::string(fbm.listName);
-                                // strcpy(listname.c_str(), );
-                                flog::info("!!!! poz {0}, fbm.listName {1}, listname {1}  ", poz, fbm.listName, listname);
-                            }
-                            */
                         }
                         gui::mainWindow.setidOfList_ctrl(0, msgCTRL.idOfList_ctrl);
                         flog::info("PACKET_TYPE_CTRL.  msgCTRL.idOfList_ctrl {0}", msgCTRL.idOfList_ctrl);
                         if (msgCTRL.UpdateMenu)
                         {
-                            flog::info("PACKET_TYPE_CTRL. RCV. msgCTRL.UpdateMenu {0}, msgCTRL.button_ctrl {1}, ib_pkt_hdr->sizeOfExtension {2}", msgCTRL.UpdateMenu, msgCTRL.button_ctrl, ib_pkt_hdr->sizeOfExtension);
+                            flog::info("PACKET_TYPE_CTRL. RCV. msgCTRL.UpdateMenu {0}, msgCTRL.button_ctrl {1}, msgCTRL.level {2}", msgCTRL.UpdateMenu, msgCTRL.button_ctrl, msgCTRL.level);
                             gui::mainWindow.setbutton_ctrl(0, msgCTRL.button_ctrl);
                             gui::mainWindow.setMaxRecWaitTime_ctrl(0, msgCTRL.maxRecWaitTime);
                             gui::mainWindow.setAuto_levelCtrl(0, msgCTRL.statAutoLevel);
@@ -1184,6 +1409,92 @@ namespace remote
                             gui::mainWindow.setUpdateModule_ctrl(0, true);
                             gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
                             gui::mainWindow.setUpdateMenuSnd7Ctrl(0, false);
+                        }
+                    }
+                    */
+                    else if (ib_pkt_hdr->type == PACKET_TYPE_CTRL)
+                    { // CTRL
+                        // ВАЖНО: отделяем "состояние" от "банка частот".
+                        // Банк обновляем только если модуль Спостереження/CTRL не запущен на РПМ.
+                        bool ctrl_running = gui::mainWindow.getbutton_ctrl(0);
+
+                        // count = общий размер "тела" без InfoHeader
+                        int msgSize = count;
+                        if (ib_pkt_hdr->sizeOfExtension > 0)
+                            msgSize -= ib_pkt_hdr->sizeOfExtension;
+
+                        if (msgSize != (int)sizeof(msgCTRL))
+                        {
+                            flog::error("PACKET_TYPE_CTRL: invalid msg size: {0} != {1}",
+                                        msgSize, sizeof(msgCTRL));
+                        }
+                        else
+                        {
+                            memcpy(&msgCTRL, &ibuf[sizeof(InfoHeader)], msgSize);
+
+                            flog::info(
+                                "PACKET_TYPE_CTRL. RCV. UpdateMenu={0}, button_ctrl={1}, "
+                                "ext={2}, ctrl_running={3}, idOfList={4}",
+                                msgCTRL.UpdateMenu,
+                                msgCTRL.button_ctrl,
+                                ib_pkt_hdr->sizeOfExtension,
+                                ctrl_running,
+                                msgCTRL.idOfList_ctrl);
+
+                            // --- ОБНОВЛЕНИЕ БАНКА ЧАСТОТ (extension) ---
+                            if (ib_pkt_hdr->sizeOfExtension > 0 && !gui::mainWindow.getbutton_ctrl(0))
+                            {
+                                if (!ctrl_running)
+                                {
+                                    void *bbufRCV = ::operator new(ib_pkt_hdr->sizeOfExtension);
+                                    memcpy(bbufRCV,
+                                           &ibuf[sizeof(InfoHeader) + msgSize],
+                                           ib_pkt_hdr->sizeOfExtension);
+
+                                    gui::mainWindow.setbbuf_ctrl(bbufRCV, ib_pkt_hdr->sizeOfExtension);
+                                    ::operator delete(bbufRCV);
+
+                                    gui::mainWindow.setUpdateListRcv7Ctrl(0, true);
+
+                                    flog::info(
+                                        "PACKET_TYPE_CTRL: bank updated, extSize={0}",
+                                        ib_pkt_hdr->sizeOfExtension);
+                                }
+                                else
+                                {
+                                    // Модуль уже работает — банк не трогаем
+                                    flog::warn(
+                                        "PACKET_TYPE_CTRL: got bank update while CTRL/"
+                                        "Supervisor is running -> dropping extension (size={0})",
+                                        ib_pkt_hdr->sizeOfExtension);
+                                }
+                            }
+
+                            // --- ОБНОВЛЕНИЕ ВЫБОРА СПИСКА И НАСТРОЕК ---
+                            gui::mainWindow.setidOfList_ctrl(0, msgCTRL.idOfList_ctrl);
+                            flog::info("PACKET_TYPE_CTRL. msgCTRL.idOfList_ctrl {0}",
+                                       msgCTRL.idOfList_ctrl);
+
+                            if (msgCTRL.UpdateMenu)
+                            {
+                                flog::info(
+                                    "PACKET_TYPE_CTRL. RCV. msgCTRL.UpdateMenu {0}, "
+                                    "msgCTRL.button_ctrl {1}, msgCTRL.level {2}",
+                                    msgCTRL.UpdateMenu,
+                                    msgCTRL.button_ctrl,
+                                    msgCTRL.level);
+
+                                gui::mainWindow.setbutton_ctrl(0, msgCTRL.button_ctrl);
+                                gui::mainWindow.setMaxRecWaitTime_ctrl(0,
+                                                                       msgCTRL.maxRecWaitTime);
+                                gui::mainWindow.setAuto_levelCtrl(0, msgCTRL.statAutoLevel);
+                                gui::mainWindow.setAKFInd_ctrl(0, msgCTRL.status_AKF);
+                                gui::mainWindow.setflag_level_ctrl(0, msgCTRL.flag_level);
+                                gui::mainWindow.setLevelDbCtrl(0, msgCTRL.level);
+                                gui::mainWindow.setUpdateModule_ctrl(0, true);
+                                gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+                                gui::mainWindow.setUpdateMenuSnd7Ctrl(0, false);
+                            }
                         }
                     }
                     else if (ib_pkt_hdr->type == PACKET_TYPE_MAIN)
@@ -1246,9 +1557,9 @@ namespace remote
                                     }
                                     flog::info("TRACE RCV PACKET_TYPE_MAIN 2. getUpdateMenuSnd3Record {0}", msgMain.recording);
                                     // gui::mainWindow.setRecording(msgMain.recording);
-                                    if(msgMain.recording)
+                                    if (msgMain.recording)
                                         gui::mainWindow.setServerRecordingStart(0);
-                                    else    
+                                    else
                                         gui::mainWindow.setServerRecordingStop(0);
                                     gui::mainWindow.setUpdateMenuRcv3Record(true);
                                 }
@@ -1270,10 +1581,8 @@ namespace remote
                             {
                                 gui::mainWindow.setbutton_srch(0, msgMain.search);
                                 gui::mainWindow.setidOfList_srch(0, msgMain.idOfList_srch);
-                                gui::mainWindow.setselectedLogicId(0, msgMain.selectedLogicId);
                                 gui::mainWindow.setLevelDbSrch(0, msgMain.setLevelDbSrch);
-                                gui::mainWindow.setLevelDbScan(0, msgMain.setLevelDbScan);
-                                gui::mainWindow.setLevelDbCtrl(0, msgMain.setLevelDbCtrl);
+                                gui::mainWindow.setselectedLogicId(0, msgMain.selectedLogicId);
                                 if (msgMain.search)
                                 {
                                     if (!gui::mainWindow.isPlaying())
@@ -1286,10 +1595,13 @@ namespace remote
                             }
 
                             flog::info("TRACE RCV PACKET_TYPE_MAIN 4 msgMain.scan {0}, gui::mainWindow.getbutton_scan(0) {1}, msgMain.idOfList_scan {2}", msgMain.scan, gui::mainWindow.getbutton_scan(0), msgMain.idOfList_scan);
+
                             if (msgMain.scan != gui::mainWindow.getbutton_scan(0))
                             {
                                 gui::mainWindow.setbutton_scan(0, msgMain.scan);
                                 gui::mainWindow.setidOfList_scan(0, msgMain.idOfList_scan);
+                                gui::mainWindow.setLevelDbScan(0, msgMain.setLevelDbScan);
+
                                 if (msgMain.scan)
                                 {
                                     if (!gui::mainWindow.isPlaying())
@@ -1301,10 +1613,12 @@ namespace remote
                                 gui::mainWindow.setUpdateMenuSnd6Scan(0, false);
                             }
                             flog::info("TRACE RCV PACKET_TYPE_MAIN 5 msgMain.control {0}, gui::mainWindow.getbutton_ctrl(0) {1}, msgMain.idOfList_control {2}", msgMain.control, gui::mainWindow.getbutton_ctrl(0), msgMain.idOfList_control);
+
                             if (msgMain.control != gui::mainWindow.getbutton_ctrl(0))
                             {
                                 gui::mainWindow.setbutton_ctrl(0, msgMain.control);
                                 gui::mainWindow.setidOfList_ctrl(0, msgMain.idOfList_control);
+                                gui::mainWindow.setLevelDbCtrl(0, msgMain.setLevelDbCtrl);
                                 gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
                                 gui::mainWindow.setUpdateMenuSnd7Ctrl(0, false);
                             }
@@ -1397,14 +1711,26 @@ namespace remote
                     if (send_airspy)
                         gui::mainWindow.setUpdateMenuSnd(false);
                     if (send_main)
-                    {
-                        // gui::mainWindow.setUpdateMenuSnd0Main(0, false);
                         send_main = false;
-                    }
                     if (send_radio)
                         gui::mainWindow.setUpdateMenuSnd2Radio(false);
                     if (send_record)
                         gui::mainWindow.setUpdateMenuSnd3Record(false);
+                    if (send_search)
+                    {
+                        gui::mainWindow.setUpdateMenuSnd5Srch(0, false);
+                        send_search = false;
+                    }
+                    if (send_scan)
+                    {
+                        gui::mainWindow.setUpdateMenuSnd6Scan(0, false);
+                        send_scan = false;
+                    }
+                    if (send_ctrl)
+                    {
+                        gui::mainWindow.setUpdateMenuSnd7Ctrl(0, false);
+                        send_ctrl = false;
+                    }
                 }
                 else
                 {
@@ -1443,66 +1769,1895 @@ namespace remote
         }
     }
 
-    void RemoteRadio::udpSenderThread(const std::string &ip, int port, const std::string &prefix)
+    //=========================================================================================
+    //=========================================================================================
+    //=========================================================================================
+    struct DbStats
     {
-        int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        uint64_t tx_telemetry = 0;  // скольких телеметрий отправлено
+        uint64_t rx_dbsend = 0;     // получено DBSEND
+        uint64_t tx_dback = 0;      // отправлено DBACK
+        uint64_t parse_err = 0;     // ошибок парсинга DBSEND
+        uint64_t addr_mismatch = 0; // не наш instance
+        uint32_t last_task_id = 0;  // последний task_id
+        int last_work = 0;          // последний work_status
+        uint32_t last_cmd_ts = 0;   // unixtime последней команды
+        sockaddr_in last_peer{};    // кому отвечали DBACK
+    };
+    /*
+        void RemoteRadio::processObservationMode(uint32_t task_id)
+        {
+            std::cout << "[DB] Начало обработки режима НАБЛЮДЕНИЕ (4) для задачи " << task_id << std::endl;
+            pqxx::connection conn{this->kConnStr};
+            pqxx::work txn{conn};
+
+            // TODO: Для наблюдения, вероятно, потребуется более сложный запрос,
+            // чтобы получить dopinfo, scard, и другие специфичные поля для каждого канала.
+            pqxx::result task_result = txn.exec_params(
+                "SELECT b.nazv AS bank_name, f.freq1 AS freq, f.band AS bandwidth, f.modul as mode, f.dopinfo, f.scard " // Пример
+                "FROM public.task AS t "
+                "LEFT JOIN public.bank AS b ON b.id = t.id_bank AND b.del = 'N' "
+                "LEFT JOIN public.freq AS f ON f.id_bank = b.id "
+                "WHERE t.id = $1 ORDER BY f.freq1;",
+                task_id);
+
+            if (task_result.empty())
+                throw std::runtime_error("Задача не найдена или не содержит частот.");
+
+            json config = {
+                {"bookmarkDisplayMode", 1}, {"selectedList", "General"}, {"status_AKF", true}};
+
+            json bookmarks = json::object();
+            int channel_num = 1;
+            for (const auto &row : task_result)
+            {
+                if (!row["freq"].is_null())
+                {
+                    std::string channel_id = "C" + std::to_string(channel_num++);
+                    bookmarks[channel_id] = {
+                        {"frequency", row["freq"].as<double>()},
+                        {"bandwidth", row["bandwidth"].as<double>(12500.0)},
+                        {"mode", row["mode"].as<int>(0)},
+                        {"dopinfo", row["dopinfo"].as<std::string>(channel_id)},          // Используем ID как доп.инфо
+                        {"scard", row["scard"].as<std::string>("vsink_1_" + channel_id)}, // Генерируем scard
+                        {"level", -20},
+                        {"Signal", 0}};
+                }
+            }
+
+            config["lists"]["General"] = {
+                {"bookmarks", bookmarks},
+                {"flaglevel", true},
+                {"genlevel", -20},
+                {"showOnWaterfall", true}};
+
+            txn.commit();
+            saveConfigToFile(config);
+            std::cout << "[DB] Конфигурация для режима НАБЛЮДЕНИЕ успешно создана.\n";
+        }
+    */
+    void RemoteRadio::saveConfigToFile(const json &config, const std::string &filename)
+    {
+        std::ofstream o(filename);
+        if (!o.is_open())
+        {
+            throw std::runtime_error("Не удалось открыть файл для записи: " + filename);
+        }
+        o << std::setw(4) << config << std::endl;
+        o.close();
+    }
+    // ===============================================================================================
+    using WFSkipFoundBookmark = ImGui::WaterFall::SkipFoundBookmark;
+
+    static bool isGeneralBankRow(const pqxx::row &row)
+    {
+        try
+        {
+            // вариант: bank как число (1 == General)
+            try
+            {
+                int b = row["bank"].as<int>(-1);
+                if (b == 1)
+                    return true;
+                if (b != -1)
+                    return false;
+            }
+            catch (...)
+            {
+            }
+
+            // вариант: bank как строка ("General")
+            try
+            {
+                std::string bstr = row["bank"].as<std::string>("");
+                if (bstr == "General" || bstr == "GENERAL" || bstr == "general")
+                    return true;
+                if (!bstr.empty())
+                    return false;
+            }
+            catch (...)
+            {
+            }
+        }
+        catch (...)
+        {
+        }
+
+        // если поля bank нет — считаем, что подходит
+        return true;
+    }
+
+    static bool buildBlacklistFromDb(const std::string &connStr, int instNum)
+    {
+        try
+        {
+            pqxx::connection conn{connStr};
+            pqxx::work txn{conn};
+
+            auto r2 = txn.exec_params(
+                "SELECT id, num_instance, freq_bl, modul_bl, signal_bl "
+                "FROM public.black_list "
+                "WHERE num_instance = $1 "
+                "ORDER BY freq_bl;",
+                instNum);
+
+            flog::info("[ARM+] buildBlacklistFromDb: instNum={0}, rows={1}", instNum, r2.size());
+
+            std::vector<WFSkipFoundBookmark> items;
+            items.reserve(r2.size());
+
+            for (const auto &row : r2)
+            {
+                WFSkipFoundBookmark bi{};
+                bi.frequency = 0.0;
+                bi.bandwidth = 12500.0f; // дефолт для Search
+                bi.mode = 0;
+                bi.level = -50;
+                bi.selected = false;
+                bi.ftime = std::time(nullptr);
+
+                // freq_bl -> frequency
+                if (!row["freq_bl"].is_null())
+                {
+                    try
+                    {
+                        long long f = row["freq_bl"].as<long long>(0);
+                        if (f > 0)
+                            bi.frequency = static_cast<double>(f);
+                    }
+                    catch (...)
+                    {
+                        std::cerr << "[DB] freq_bl: cannot convert to long long\n";
+                    }
+                }
+
+                // modul_bl -> mode
+                if (!row["modul_bl"].is_null())
+                {
+                    std::string modulStr;
+                    try
+                    {
+                        modulStr = row["modul_bl"].as<std::string>("");
+                    }
+                    catch (...)
+                    {
+                        modulStr.clear();
+                    }
+
+                    if (!modulStr.empty())
+                    {
+                        int modeIndex = bi.mode;
+                        bool setByNumber = false;
+
+                        // 1) число 0..7
+                        try
+                        {
+                            size_t pos = 0;
+                            int m = std::stoi(modulStr, &pos);
+                            if (pos == modulStr.size() && m >= 0 && m < 8)
+                            {
+                                modeIndex = m;
+                                setByNumber = true;
+                            }
+                        }
+                        catch (...)
+                        {
+                        }
+
+                        // 2) строка
+                        if (!setByNumber)
+                        {
+                            static const char *demodModeListFile[] = {
+                                "ЧМ",
+                                "ЧМ-Ш",
+                                "AM",
+                                "ПБС",
+                                "ВБС",
+                                "HC",
+                                "НБС",
+                                "CMO"};
+
+                            for (int i = 0; i < 8; ++i)
+                            {
+                                if (modulStr == demodModeListFile[i])
+                                {
+                                    modeIndex = i;
+                                    break;
+                                }
+                            }
+                        }
+
+                        bi.mode = modeIndex;
+                    }
+                }
+
+                // signal_bl -> level
+                if (!row["signal_bl"].is_null())
+                {
+                    try
+                    {
+                        std::string sigStr = row["signal_bl"].as<std::string>("");
+                        if (!sigStr.empty())
+                            bi.level = std::stoi(sigStr);
+                    }
+                    catch (...)
+                    {
+                        std::cerr << "[DB] signal_bl: cannot convert to int, use -50\n";
+                        bi.level = -50;
+                    }
+                }
+
+                items.push_back(std::move(bi));
+            }
+
+            txn.commit();
+
+            // Вот здесь — правильный вызов:
+            gui::waterfall.UpdateBlackList(items);
+
+            return true;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "[DB] buildBlacklistFromDb exception: " << e.what() << "\n";
+            return false;
+        }
+    }
+
+    //---------------------------------------------------------------------------------------------
+    static bool buildSearchStructFromDb(const pqxx::result &freqRows)
+    {
+        flog::info("[ARM+] buildSearchStructFromDb: START, freqRows.size={0}", freqRows.size());
+
+        if (freqRows.empty())
+        {
+            flog::warn("[ARM+] buildSearchStructFromDb: freqRows.empty()");
+            return false;
+        }
+
+        // --- Ищем строку банка General в freqRows (одну) ---
+        const pqxx::row *rowGeneral = nullptr;
+        for (const auto &r : freqRows)
+        {
+            if (isGeneralBankRow(r))
+            {
+                rowGeneral = &r;
+                break;
+            }
+        }
+
+        if (!rowGeneral)
+        {
+            flog::warn("[ARM+] buildSearchStructFromDb: no row for bank=General in freqRows");
+            return false;
+        }
+        const auto &row = *rowGeneral;
+
+        // -------- парсим поля из БД (freq, freq2, band, step, modul) --------
+        SearchModeList fbm{};
+        long long dbFreq = 0;
+        long long dbFreq2 = 0;
+        long long dbBand = 0;
+        long long dbStep = 0;
+        std::string dbModul;
+
+        // freq
+        if (!row["freq"].is_null())
+        {
+            try
+            {
+                dbFreq = row["freq"].as<long long>(0);
+            }
+            catch (...)
+            {
+            }
+        }
+
+        // freq2
+        if (!row["freq2"].is_null())
+        {
+            try
+            {
+                dbFreq2 = row["freq2"].as<long long>(0);
+            }
+            catch (...)
+            {
+            }
+        }
+
+        // band
+        bool bandFromDb = false;
+        if (!row["band"].is_null())
+        {
+            try
+            {
+                dbBand = row["band"].as<long long>(0);
+                if (dbBand > 0)
+                    bandFromDb = true;
+            }
+            catch (...)
+            {
+                try
+                {
+                    std::string bwStr = row["band"].as<std::string>("");
+                    if (!bwStr.empty())
+                    {
+                        double bw = std::stod(bwStr);
+                        if (bw > 0.0)
+                        {
+                            dbBand = (long long)bw;
+                            bandFromDb = true;
+                        }
+                    }
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+
+        // step
+        bool stepFromDb = false;
+        if (!row["step"].is_null())
+        {
+            try
+            {
+                dbStep = row["step"].as<long long>(0);
+                if (dbStep > 0)
+                    stepFromDb = true;
+            }
+            catch (...)
+            {
+            }
+        }
+
+        // modul
+        if (!row["modul"].is_null())
+        {
+            try
+            {
+                dbModul = row["modul"].as<std::string>("");
+            }
+            catch (...)
+            {
+            }
+        }
+
+        // =========================================================
+        // 1) Берём текущий буфер поиска с РПМ
+        // =========================================================
+        void *srcBuf = gui::mainWindow.getbbuf_srch();
+        int bufSize = gui::mainWindow.getsizeOfbbuf_srch();
+
+        flog::info("[ARM+] buildSearchStructFromDb: initial srcBuf={0}, bufSize={1}, sizeof(SearchModeList)={2}",
+                   (const void *)srcBuf, bufSize, (int)sizeof(SearchModeList));
+
+        // ждём до ~5 секунд пока GUI заполнит bbuf_srch
+        for (int i = 0; i < 50; ++i)
+        {
+            srcBuf = gui::mainWindow.getbbuf_srch();
+            bufSize = gui::mainWindow.getsizeOfbbuf_srch();
+            if (srcBuf && bufSize > 0 && bufSize % (int)sizeof(SearchModeList) == 0)
+                break;
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        const int sizeofList = (int)sizeof(SearchModeList);
+        bool invalidBuf = (!srcBuf || bufSize <= 0 || (bufSize % sizeofList) != 0);
+
+        // =========================================================
+        // ВЕТКА A: буфер битый / пустой → создаём НОВЫЙ только с General
+        // =========================================================
+        if (invalidBuf)
+        {
+            flog::warn("[ARM+] buildSearchStructFromDb: invalid buffer, recreate with single 'General' list. "
+                       "srcBuf={0}, bufSize={1}, sizeof={2}",
+                       (const void *)srcBuf, bufSize, sizeofList);
+
+            int newSize = sizeofList;
+            void *bbufNew = ::operator new((size_t)newSize);
+            SearchModeList *arr = static_cast<SearchModeList *>(bbufNew);
+
+            SearchModeList gen{};
+            std::snprintf(gen.listName, sizeof(gen.listName), "%s", "General");
+
+            // Применяем значения из БД
+            if (dbFreq > 0)
+                gen._startFreq = static_cast<double>(dbFreq);
+            if (dbFreq2 > 0)
+                gen._stopFreq = static_cast<double>(dbFreq2);
+            if (bandFromDb && dbBand > 0)
+                gen._bandwidth = static_cast<double>(dbBand);
+            if (stepFromDb && dbStep > 0)
+                gen._interval = static_cast<double>(dbStep);
+
+            // _mode по modul
+            if (!dbModul.empty())
+            {
+                int modeIndex = gen._mode; // текущее
+                bool setByNumber = false;
+
+                // 1) modul как число
+                try
+                {
+                    size_t pos = 0;
+                    int m = std::stoi(dbModul, &pos);
+                    if (pos == dbModul.size() && m >= 0 && m < 8)
+                    {
+                        modeIndex = m;
+                        setByNumber = true;
+                    }
+                }
+                catch (...)
+                {
+                }
+
+                // 2) modul как строка
+                if (!setByNumber)
+                {
+                    static const char *demodModeListFile[] = {
+                        "ЧМ",
+                        "ЧМ-Ш",
+                        "AM",
+                        "ПБС",
+                        "ВБС",
+                        "HC",
+                        "НБС",
+                        "CMO"};
+
+                    for (int i = 0; i < 8; ++i)
+                    {
+                        if (dbModul == demodModeListFile[i])
+                        {
+                            modeIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                gen._mode = modeIndex;
+            }
+
+            *arr = gen;
+
+            // Передаём в GUI
+            gui::mainWindow.setbbuf_srch(bbufNew, newSize);
+            ::operator delete(bbufNew);
+
+            // НАСТРОЙКА ПОИСКА — General (он один, индекс 0)
+            gui::mainWindow.setidOfList_srch(0, 0);
+            // gui::mainWindow.setLevelDbSrch(0, -77);
+            gui::mainWindow.setAuto_levelSrch(0, true);
+            gui::mainWindow.setAKFInd(0, true);
+            gui::mainWindow.setUpdateModule_srch(0, true);
+            gui::mainWindow.setUpdateListRcv5Srch(0, true);
+            gui::mainWindow.setUpdateMenuRcv5Srch(true);
+            gui::mainWindow.setUpdateMenuSnd5Srch(0, true);
+            gui::mainWindow.setbutton_srch(0, true);
+
+            flog::info("[ARM+] buildSearchStructFromDb: DONE (recreated buffer with single 'General')");
+            gui::mainWindow.setUpdateLists_srch(true); // есть новый список
+            return true;
+        }
+
+        // =========================================================
+        // ВЕТКА B: буфер валиден → сохраняем все списки, правим/добавляем только General
+        // =========================================================
+
+        // Делаем копию, чтобы править
+        void *bbufCopy = ::operator new((size_t)bufSize);
+        std::memcpy(bbufCopy, srcBuf, (size_t)bufSize);
+
+        int nLists = bufSize / sizeofList;
+        int generalIdx = -1;
+
+        // --- 1) Пытаемся найти существующий General и обновить его ---
+        for (int idx = 0; idx < nLists; ++idx)
+        {
+            SearchModeList local{};
+            std::memcpy(&local,
+                        static_cast<uint8_t *>(bbufCopy) + idx * sizeofList,
+                        sizeofList);
+
+            std::string name(local.listName);
+            flog::info("[ARM+] buildSearchStructFromDb: list[{0}] name='{1}'", idx, name);
+
+            if (name == "General")
+            {
+                generalIdx = idx;
+
+                // применяем параметры из БД к этому SearchModeList
+                if (dbFreq > 0)
+                    local._startFreq = static_cast<double>(dbFreq);
+
+                if (dbFreq2 > 0)
+                    local._stopFreq = static_cast<double>(dbFreq2);
+
+                if (bandFromDb && dbBand > 0)
+                    local._bandwidth = static_cast<double>(dbBand);
+
+                if (stepFromDb && dbStep > 0)
+                    local._interval = static_cast<double>(dbStep);
+
+                if (!dbModul.empty())
+                {
+                    int modeIndex = local._mode;
+                    bool setByNumber = false;
+
+                    // modul как число
+                    try
+                    {
+                        size_t pos = 0;
+                        int m = std::stoi(dbModul, &pos);
+                        if (pos == dbModul.size() && m >= 0 && m < 8)
+                        {
+                            modeIndex = m;
+                            setByNumber = true;
+                        }
+                    }
+                    catch (...)
+                    {
+                    }
+
+                    // modul как строка
+                    if (!setByNumber)
+                    {
+                        static const char *demodModeListFile[] = {
+                            "ЧМ",
+                            "ЧМ-Ш",
+                            "AM",
+                            "ПБС",
+                            "ВБС",
+                            "HC",
+                            "НБС",
+                            "CMO"};
+
+                        for (int i = 0; i < 8; ++i)
+                        {
+                            if (dbModul == demodModeListFile[i])
+                            {
+                                modeIndex = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    local._mode = modeIndex;
+                }
+
+                // Записываем обратно
+                std::memcpy(static_cast<uint8_t *>(bbufCopy) + idx * sizeofList,
+                            &local,
+                            sizeofList);
+
+                flog::info("[ARM+] buildSearchStructFromDb: updated existing 'General' at idx={0}", idx);
+                break;
+            }
+        }
+
+        // --- 2) Если General не нашли — ДОБАВЛЯЕМ его в конец массива ---
+        if (generalIdx < 0)
+        {
+            flog::info("[ARM+] buildSearchStructFromDb: 'General' not found, append new");
+
+            int newSize = bufSize + sizeofList;
+            void *bbufNew = ::operator new((size_t)newSize);
+
+            // копируем старые списки
+            std::memcpy(bbufNew, bbufCopy, (size_t)bufSize);
+            ::operator delete(bbufCopy);
+
+            // новый General
+            SearchModeList gen{};
+            std::snprintf(gen.listName, sizeof(gen.listName), "%s", "General");
+
+            if (dbFreq > 0)
+                gen._startFreq = static_cast<double>(dbFreq);
+            if (dbFreq2 > 0)
+                gen._stopFreq = static_cast<double>(dbFreq2);
+            if (bandFromDb && dbBand > 0)
+                gen._bandwidth = static_cast<double>(dbBand);
+            if (stepFromDb && dbStep > 0)
+                gen._interval = static_cast<double>(dbStep);
+
+            if (!dbModul.empty())
+            {
+                int modeIndex = gen._mode;
+                bool setByNumber = false;
+
+                try
+                {
+                    size_t pos = 0;
+                    int m = std::stoi(dbModul, &pos);
+                    if (pos == dbModul.size() && m >= 0 && m < 8)
+                    {
+                        modeIndex = m;
+                        setByNumber = true;
+                    }
+                }
+                catch (...)
+                {
+                }
+
+                if (!setByNumber)
+                {
+                    static const char *demodModeListFile[] = {
+                        "ЧМ",
+                        "ЧМ-Ш",
+                        "AM",
+                        "ПБС",
+                        "ВБС",
+                        "HC",
+                        "НБС",
+                        "CMO"};
+
+                    for (int i = 0; i < 8; ++i)
+                    {
+                        if (dbModul == demodModeListFile[i])
+                        {
+                            modeIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                gen._mode = modeIndex;
+            }
+
+            // кладём новый General в конец
+            std::memcpy(static_cast<uint8_t *>(bbufNew) + bufSize,
+                        &gen,
+                        sizeofList);
+
+            generalIdx = nLists; // новый — последний
+
+            // отдаём новый буфер
+            gui::mainWindow.setbbuf_srch(bbufNew, newSize);
+            ::operator delete(bbufNew);
+
+            // НАСТРОЙКА ПОИСКА
+            gui::mainWindow.setidOfList_srch(0, generalIdx);
+            // gui::mainWindow.setLevelDbSrch(0, -77);
+            gui::mainWindow.setAuto_levelSrch(0, true);
+            gui::mainWindow.setAKFInd(0, true);
+            gui::mainWindow.setUpdateModule_srch(0, true);
+            gui::mainWindow.setUpdateListRcv5Srch(0, true);
+            gui::mainWindow.setUpdateMenuRcv5Srch(true);
+            gui::mainWindow.setUpdateMenuSnd5Srch(0, true);
+            gui::mainWindow.setbutton_srch(0, true);
+
+            flog::info("[ARM+] buildSearchStructFromDb: DONE, appended new 'General', idx={0}", generalIdx);
+            gui::mainWindow.setUpdateLists_srch(true);
+            return true;
+        }
+
+        // --- 3) General найден и обновлён в bbufCopy ---
+        gui::mainWindow.setbbuf_srch(bbufCopy, bufSize);
+        ::operator delete(bbufCopy);
+
+        gui::mainWindow.setidOfList_srch(0, generalIdx);
+        // gui::mainWindow.setLevelDbSrch(0, -77);
+        gui::mainWindow.setAuto_levelSrch(0, true);
+        gui::mainWindow.setAKFInd(0, true);
+        gui::mainWindow.setUpdateModule_srch(0, true);
+        gui::mainWindow.setUpdateListRcv5Srch(0, true);
+        gui::mainWindow.setUpdateMenuRcv5Srch(true);
+        gui::mainWindow.setUpdateMenuSnd5Srch(0, true);
+        gui::mainWindow.setbutton_srch(0, true);
+
+        flog::info("[ARM+] buildSearchStructFromDb: DONE, updated existing 'General', idx={0}", generalIdx);
+        gui::mainWindow.setUpdateLists_srch(true);
+        return true;
+    }
+
+#pragma pack(push, 1)
+    struct CompactBookmarkData
+    {
+        int id;
+        double freq;
+        float bw;
+        int mode;
+        int level;
+        int signal;
+    };
+#pragma pack(pop)
+
+    static std::string safe_get_str(const pqxx::row &row, const char *col)
+    {
+        try
+        {
+            if (row[col].is_null())
+                return "";
+            return row[col].as<std::string>();
+        }
+        catch (...)
+        {
+            return "";
+        }
+    }
+
+    static bool buildScanStructFromDb(const pqxx::result &freqRows)
+    {
+        flog::info("[ARM+] buildScanStructFromDb: START, freqRows.size={0}", freqRows.size());
+
+        if (freqRows.empty())
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: freqRows.empty()");
+            return false;
+        }
+
+        // 1) Берём исходный буфер от РПМ (списки сканирования)
+        void *srcBuf = gui::mainWindow.getbbuf_scan();
+        int bufSize = gui::mainWindow.getsizeOfbbuf_scan();
+
+        flog::info("[ARM+] buildScanStructFromDb: initial srcBuf={0}, bufSize={1}",
+                   (const void *)srcBuf, bufSize);
+
+        // Подождём до ~5 секунд, если буфер ещё не готов
+        if (!srcBuf || bufSize <= 0)
+        {
+            for (int i = 0; i < 50; ++i)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                srcBuf = gui::mainWindow.getbbuf_scan();
+                bufSize = gui::mainWindow.getsizeOfbbuf_scan();
+                flog::info("[ARM+] buildScanStructFromDb: wait buf, try={0}, srcBuf={1}, bufSize={2}",
+                           i, (const void *)srcBuf, bufSize);
+                if (srcBuf && bufSize > 0)
+                    break;
+            }
+        }
+
+        if (!srcBuf || bufSize <= 0)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: invalid buffer after wait: srcBuf={0}, bufSize={1}",
+                       (const void *)srcBuf, bufSize);
+            return false;
+        }
+
+        // 2) Делаем копию буфера, чтобы править её
+        void *bbufCopy = ::operator new((size_t)bufSize);
+        std::memcpy(bbufCopy, srcBuf, (size_t)bufSize);
+        uint8_t *buf = static_cast<uint8_t *>(bbufCopy);
+
+        flog::info("[ARM+] buildScanStructFromDb: using srcBuf copy={0}, bufSize={1}",
+                   (const void *)buf, bufSize);
+
+        // 3) Парсим списки, ищем General
+        size_t offset = 0;
+        int listIndex = 0;
+        int generalListIdx = -1;
+        size_t generalItemsOffset = 0;
+        size_t generalCountOffset = 0;
+        int oldCount = 0;
+        bool parseError = false;
+
+        flog::info("[ARM+] buildScanStructFromDb: parse lists, totalBufSize={0}", bufSize);
+
+        while (offset + 32 + sizeof(int) <= (size_t)bufSize)
+        {
+            // --- читаем имя списка (32 байта) ---
+            char nameBuf[32];
+            std::memcpy(nameBuf, buf + offset, 32);
+            offset += 32;
+
+            nameBuf[31] = '\0';
+            std::string listName(nameBuf, strnlen(nameBuf, 32));
+
+            // --- читаем count ---
+            if (offset + sizeof(int) > (size_t)bufSize)
+            {
+                flog::warn("[ARM+] buildScanStructFromDb: not enough space for count in list {0}", listIndex);
+                parseError = true;
+                break;
+            }
+
+            int count = 0;
+            size_t countOffset = offset;
+            std::memcpy(&count, buf + offset, sizeof(int));
+            offset += sizeof(int);
+
+            flog::info("[ARM+] buildScanStructFromDb: listIndex={0}, name='{1}', count={2}, offset={3}",
+                       listIndex, listName, count, offset);
+
+            if (count < 0)
+            {
+                flog::warn("[ARM+] buildScanStructFromDb: negative count in list {0}", listIndex);
+                parseError = true;
+                break;
+            }
+
+            // Сколько байт занимают элементы
+            size_t structSize = sizeof(CompactBookmarkData);
+            size_t itemsBytes = (size_t)count * structSize;
+
+            // Проверка, что элементы не выходят за буфер
+            if (offset + itemsBytes > (size_t)bufSize)
+            {
+                flog::warn("[ARM+] buildScanStructFromDb: list {0} items out of buffer: offset={1}, itemsBytes={2}, bufSize={3}",
+                           listIndex, offset, itemsBytes, bufSize);
+                parseError = true;
+                break;
+            }
+
+            if (listName == "General")
+            {
+                generalListIdx = listIndex;
+                generalItemsOffset = offset;
+                generalCountOffset = countOffset;
+                oldCount = count;
+
+                flog::info("[ARM+] buildScanStructFromDb: FOUND 'General': listIndex={0}, itemsOffset={1}, countOffset={2}, oldCount={3}",
+                           listIndex, generalItemsOffset, generalCountOffset, oldCount);
+
+                // --- наш диагностический блок ---
+                size_t requiredBytes = (size_t)oldCount * structSize;
+                size_t blockStart = generalItemsOffset;
+                size_t blockEnd = generalItemsOffset + requiredBytes;
+
+                flog::error("===== DEBUG STRUCT ANALYSIS =====");
+                flog::error("sizeof(CompactBookmarkData) = {0}", structSize);
+                flog::error("General.count (oldCount) = {0}", oldCount);
+                flog::error("Required bytes to hold items = {0}", requiredBytes);
+                flog::error("General block begin offset = {0}", blockStart);
+                flog::error("General block end offset   = {0}", blockEnd);
+                flog::error("Full buffer size (bufSize)= {0}", bufSize);
+
+                if (blockEnd > (size_t)bufSize)
+                {
+                    flog::error("!!! FATAL: ITEMS BLOCK EXCEEDS BUFFER SIZE !!!");
+                    parseError = true;
+                }
+                else
+                {
+                    flog::info("Items block fits inside buffer. Safe to continue.");
+                }
+
+                break;
+            }
+
+            // Пропускаем элементы этого списка
+            offset += itemsBytes;
+            ++listIndex;
+        }
+
+        // Если парсинг сломан → ничего не трогаем, выходим
+        if (parseError)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: parseError=true, exit without modification");
+            ::operator delete(bbufCopy);
+            return false;
+        }
+
+        if (generalListIdx < 0)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: 'General' list not found in scan buffer");
+            ::operator delete(bbufCopy);
+            return false;
+        }
+
+        // 4) Готовим область для General
+        uint8_t *itemsBase = buf + generalItemsOffset;
+        int maxItems = oldCount;
+
+        if (maxItems <= 0)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: General has non-positive count={0}", maxItems);
+            ::operator delete(bbufCopy);
+            return false;
+        }
+
+        // Жёсткая защита: не больше MAX_COUNT_OF_DATA
+        if (maxItems > MAX_COUNT_OF_DATA)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: General oldCount={0} > MAX_COUNT_OF_DATA={1}, clamp",
+                       maxItems, MAX_COUNT_OF_DATA);
+            maxItems = MAX_COUNT_OF_DATA;
+        }
+
+        // 5) Заполняем General по данным из БД
+        int used = 0;
+        const size_t structSize = sizeof(CompactBookmarkData);
+
+        for (std::size_t iRow = 0; iRow < freqRows.size() && used < maxItems; ++iRow)
+        {
+            const auto &row = freqRows[iRow];
+
+            if (!isGeneralBankRow(row))
+            {
+                flog::info("[ARM+] buildScanStructFromDb: row[{0}] skipped (not General)", iRow);
+                continue;
+            }
+
+            flog::info("[ARM+] buildScanStructFromDb: row[{0}] → item[{1}] BEGIN", iRow, used);
+
+            CompactBookmarkData item{};
+            item.id = used + 1;
+
+            // -------- freq --------
+            {
+                std::string fs = safe_get_str(row, "freq");
+                double freq = 0.0;
+                if (!fs.empty() && fs != "-")
+                {
+                    try
+                    {
+                        freq = std::stod(fs);
+                    }
+                    catch (...)
+                    {
+                        freq = 0.0;
+                    }
+                }
+                item.freq = freq;
+            }
+
+            // -------- bw --------
+            {
+                std::string bs = safe_get_str(row, "band");
+                float bw = 250000.0f;
+                if (!bs.empty() && bs != "-")
+                {
+                    try
+                    {
+                        double bwd = std::stod(bs);
+                        if (bwd > 0.0)
+                            bw = static_cast<float>(bwd);
+                    }
+                    catch (...)
+                    {
+                        // оставляем дефолт
+                    }
+                }
+                item.bw = bw;
+            }
+
+            // -------- mode (пока 0, как раньше) --------
+            {
+                std::string ms = safe_get_str(row, "modul");
+                int mode = 0;
+                // при необходимости сюда можно добавить логику из АРМ
+                item.mode = mode;
+            }
+
+            // -------- level --------
+            {
+                item.level = -50; // фикс для сканирования
+            }
+
+            // -------- signal (DMR / ТЛФ / Авто) --------
+            {
+                std::string ss = safe_get_str(row, "signal"); // "DMR_V", "DMR", ...
+
+                int sig = 0;
+                if (!ss.empty())
+                {
+                    std::string s = ss;
+
+                    // режем пробелы по краям
+                    while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+                        s.pop_back();
+                    while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+                        s.erase(s.begin());
+
+                    // латиницу в верхний регистр
+                    for (auto &c : s)
+                        c = (char)std::toupper((unsigned char)c);
+
+                    if (s.rfind("DMR", 0) == 0)
+                    {
+                        sig = 2;
+                    }
+                    else if (s == "ТЛФ")
+                    {
+                        sig = 1;
+                    }
+                    else
+                    {
+                        sig = 0;
+                    }
+                }
+
+                flog::info("[ARM+] buildScanStructFromDb: SIGNAL parsed: raw='{0}' → sig={1}", ss, sig);
+                item.signal = sig;
+            }
+
+            // --- ЖЁСТКАЯ ПРОВЕРКА ПЕРЕД memcpy ---
+            size_t dstOffset = generalItemsOffset + (size_t)used * structSize;
+            if (dstOffset + structSize > (size_t)bufSize)
+            {
+                flog::error("[ARM+] buildScanStructFromDb: dstOffset out of range: dstOffset={0}, structSize={1}, bufSize={2}",
+                            dstOffset, structSize, bufSize);
+                parseError = true;
+                break;
+            }
+
+            flog::info("[ARM+] buildScanStructFromDb: item[{0}] => id={1}, freq={2}, bw={3}, mode={4}, level={5}, signal={6}",
+                       used, item.id, item.freq, item.bw, item.mode, item.level, item.signal);
+
+            std::memcpy(buf + dstOffset, &item, structSize);
+
+            flog::info("[ARM+] buildScanStructFromDb: memcpy done for item[{0}], destOffset={1}, size={2}",
+                       used, dstOffset, (int)structSize);
+
+            ++used;
+            flog::info("[ARM+] buildScanStructFromDb: row[{0}] → item[{1}] END", iRow, used - 1);
+        }
+
+        if (parseError)
+        {
+            flog::warn("[ARM+] buildScanStructFromDb: parseError after fill items, exit without applying");
+            ::operator delete(bbufCopy);
+            return false;
+        }
+
+        // 6) Обнуляем хвост, если used < maxItems
+        if (used < maxItems)
+        {
+            flog::info("[ARM+] buildScanStructFromDb: zero tail from {0} to {1}", used, maxItems);
+            CompactBookmarkData zero{};
+            for (int j = used; j < maxItems; ++j)
+            {
+                size_t dstOffset = generalItemsOffset + (size_t)j * structSize;
+                if (dstOffset + structSize > (size_t)bufSize)
+                {
+                    flog::error("[ARM+] buildScanStructFromDb: zero-tail dstOffset out of range: j={0}, dstOffset={1}, bufSize={2}",
+                                j, dstOffset, bufSize);
+                    break;
+                }
+                std::memcpy(buf + dstOffset, &zero, structSize);
+            }
+        }
+
+        // 7) Обновляем count (используем фактическое used)
+        std::memcpy(buf + generalCountOffset, &used, sizeof(int));
+        flog::info("[ARM+] buildScanStructFromDb: updated count at offset={0}, used={1}",
+                   generalCountOffset, used);
+
+        // 8) Отдаём изменённый буфер в GUI
+        flog::info("[ARM+] buildScanStructFromDb: setbbuf_scan ptr={0}, size={1}",
+                   (const void *)bbufCopy, bufSize);
+        gui::mainWindow.setbbuf_scan(bbufCopy, bufSize);
+        flog::info("[ARM+] buildScanStructFromDb: setbbuf_scan DONE");
+
+        // Как и раньше у тебя: GUI копирует данные, поэтому можем удалить локальный буфер
+        ::operator delete(bbufCopy);
+        flog::info("[ARM+] buildScanStructFromDb: buffer deleted locally");
+
+        // 9) Настраиваем сканер на список General
+        flog::info("[ARM+] buildScanStructFromDb: setidOfList_scan server=0, listIdx={0}", generalListIdx);
+        gui::mainWindow.setidOfList_scan(0, generalListIdx);
+        gui::mainWindow.setAuto_levelScan(0, true);
+        // gui::mainWindow.setMaxRecWaitTime_scan(0, 10);
+        // gui::mainWindow.setMaxRecDuration_scan(0, 8);
+        // gui::mainWindow.setLevelDbScan(0, -50);
+
+        gui::mainWindow.setbutton_scan(0, true);
+        gui::mainWindow.setUpdateModule_scan(0, true);
+
+        // Сказать сканеру перечитать bbuf_scan и обновить lists
+        gui::mainWindow.setUpdateListRcv6Scan(0, true);
+        gui::mainWindow.setUpdateMenuRcv6Scan(true);
+        gui::mainWindow.setUpdateMenuSnd6Scan(0, false);
+
+        flog::info("[ARM+] buildScanStructFromDb: DONE, used={0}, listIdx={1}", used, generalListIdx);
+        gui::mainWindow.setUpdateLists_scan(true);      // есть новый список
+        gui::mainWindow.setUpdateMenuSnd6Scan(0, true); // РПМ -> АРМ: PACKET_TYPE_SCAN
+
+        return true;
+    }
+
+    //---------------------------------------------------------------------------------------------
+    struct CtrlModeList
+    {
+        char listName[32];
+        int sizeOfList;
+        int bookmarkName[MAX_COUNT_OF_CTRL_LIST];
+        double frequency[MAX_COUNT_OF_CTRL_LIST];
+        float bandwidth[MAX_COUNT_OF_CTRL_LIST];
+        int mode[MAX_COUNT_OF_CTRL_LIST];
+        int level[MAX_COUNT_OF_CTRL_LIST];
+        char scard[32];
+        int Signal[MAX_COUNT_OF_CTRL_LIST];
+    };
+
+    static bool buildControlStructFromDb(const pqxx::result &freqRows)
+    {
+        flog::info("[ARM+] buildControlStructFromDb: START, freqRows.size={0}",
+                   freqRows.size());
+
+        if (freqRows.empty())
+        {
+            flog::warn("[ARM+] buildControlStructFromDb: freqRows.empty()");
+            return false;
+        }
+
+        CtrlModeList general{};
+        std::snprintf(general.listName, sizeof(general.listName), "%s",
+                      "General");
+
+        int idx = 0;
+        for (std::size_t i = 0;
+             i < freqRows.size() && idx < MAX_COUNT_OF_CTRL_LIST;
+             ++i)
+        {
+            const auto &row = freqRows[i];
+
+            if (!isGeneralBankRow(row))
+                continue;
+
+            general.bookmarkName[idx] = idx + 1;
+
+            // --- freq (freq1 AS freq) ---
+            {
+                std::string fs = safe_get_str(row, "freq");
+                double freq = 0.0;
+                if (!fs.empty() && fs != "-")
+                {
+                    try
+                    {
+                        freq = std::stod(fs);
+                    }
+                    catch (...)
+                    {
+                        freq = 0.0;
+                    }
+                }
+                general.frequency[idx] = freq;
+            }
+
+            // --- bandwidth (band) ---
+            {
+                std::string bs = safe_get_str(row, "band");
+                double bw = 12500.0;
+                if (!bs.empty() && bs != "-")
+                {
+                    try
+                    {
+                        bw = std::stod(bs);
+                    }
+                    catch (...)
+                    {
+                        bw = 12500.0;
+                    }
+                }
+                general.bandwidth[idx] = static_cast<float>(bw);
+            }
+
+            // --- mode ---
+            {
+                std::string ms = safe_get_str(row, "modul");
+                int mode = 0;
+                if (ms == "DMR")
+                    mode = 2;
+                else if (ms == "AM")
+                    mode = 1;
+                general.mode[idx] = mode;
+            }
+
+            // --- level ---
+            general.level[idx] = -76;
+
+            // --- Signal: "DMR*", "ТЛФ", "Авто/остальное" ---
+            {
+                std::string ss = safe_get_str(row, "signal");
+                int sig = 0;
+
+                if (!ss.empty())
+                {
+                    std::string s = ss;
+
+                    while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+                        s.pop_back();
+                    while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+                        s.erase(s.begin());
+
+                    for (auto &c : s)
+                        c = (char)std::toupper((unsigned char)c);
+
+                    if (s.rfind("DMR", 0) == 0)
+                        sig = 2;
+                    else if (s == "ТЛФ")
+                        sig = 1;
+                    else
+                        sig = 0;
+                }
+
+                general.Signal[idx] = sig;
+            }
+
+            ++idx;
+        }
+
+        general.sizeOfList = idx;
+
+        if (idx == 0)
+        {
+            flog::warn("[ARM+] buildControlStructFromDb: General from DB "
+                       "has 0 items");
+            return false;
+        }
+        /*
+        for (int i = 0; i < general.sizeOfList; ++i)
+        {
+            flog::info("[ARM+] CTRL General{0}: freq={1} band={2} mode={3} "
+                       "sig={4}",
+                       i, general.frequency[i], general.bandwidth[i],
+                       general.mode[i], general.Signal[i]);
+        }
+        */
+
+        void *srcBuf = gui::mainWindow.getbbuf_ctrl();
+        int bufSize = gui::mainWindow.getsizeOfbbuf_ctrl();
+
+        flog::info("[ARM+] buildControlStructFromDb: initial srcBuf={0}, "
+                   "bufSize={1}, sizeof(CtrlModeList)={2}",
+                   (const void *)srcBuf, bufSize,
+                   (int)sizeof(CtrlModeList));
+
+        const int listSize = (int)sizeof(CtrlModeList);
+        bool bufOk = (srcBuf != nullptr && bufSize > 0 && (bufSize % listSize) == 0);
+
+        if (!bufOk)
+        {
+            flog::warn("[ARM+] buildControlStructFromDb: invalid or empty "
+                       "bbuf_ctrl, create buffer with only 'General'");
+
+            const int newSize = listSize;
+            void *bbuf = ::operator new(
+                static_cast<std::size_t>(newSize));
+            std::memcpy(bbuf, &general, sizeof(CtrlModeList));
+
+            gui::mainWindow.setbbuf_ctrl(bbuf, newSize);
+            ::operator delete(bbuf);
+
+            gui::mainWindow.setidOfList_ctrl(0, 0);
+            gui::mainWindow.setAuto_levelCtrl(0, true);
+            gui::mainWindow.setAKFInd_ctrl(0, true);
+            gui::mainWindow.setflag_level_ctrl(0, true);
+            gui::mainWindow.setbutton_ctrl(0, true);
+            gui::mainWindow.setUpdateModule_ctrl(0, true);
+
+            gui::mainWindow.setUpdateListRcv7Ctrl(0, true);
+            gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+            gui::mainWindow.setUpdateMenuSnd7Ctrl(0, true);
+
+            flog::info("[ARM+] buildControlStructFromDb: DONE "
+                       "(recreated buffer with only General), items={0}",
+                       idx);
+            return true;
+        }
+
+        void *bbufCopy = ::operator new(
+            static_cast<std::size_t>(bufSize));
+        std::memcpy(bbufCopy, srcBuf, (std::size_t)bufSize);
+
+        int nLists = bufSize / listSize;
+        int generalIndex = -1;
+
+        for (int i = 0; i < nLists; ++i)
+        {
+            CtrlModeList tmp{};
+            std::memcpy(&tmp,
+                        static_cast<uint8_t *>(bbufCopy) + i * listSize,
+                        sizeof(CtrlModeList));
+
+            std::string name(tmp.listName,
+                             strnlen(tmp.listName,
+                                     sizeof(tmp.listName)));
+            flog::info("[ARM+] buildControlStructFromDb: listIndex={0}, "
+                       "name='{1}', sizeOfList={2}",
+                       i, name, tmp.sizeOfList);
+
+            if (name == "General")
+                generalIndex = i;
+        }
+
+        void *finalBuf = nullptr;
+        int finalSize = 0;
+
+        if (generalIndex >= 0)
+        {
+            flog::info("[ARM+] buildControlStructFromDb: replace existing "
+                       "'General' at index {0}",
+                       generalIndex);
+
+            std::memcpy(static_cast<uint8_t *>(bbufCopy) + generalIndex * listSize,
+                        &general,
+                        sizeof(CtrlModeList));
+
+            finalBuf = bbufCopy;
+            finalSize = bufSize;
+        }
+        else
+        {
+            flog::info("[ARM+] buildControlStructFromDb: 'General' not "
+                       "found, append as new list");
+
+            const int newSize = bufSize + listSize;
+            void *bbufNew = ::operator new(
+                static_cast<std::size_t>(newSize));
+
+            std::memcpy(bbufNew, bbufCopy, (std::size_t)bufSize);
+            std::memcpy(static_cast<uint8_t *>(bbufNew) + bufSize,
+                        &general,
+                        sizeof(CtrlModeList));
+
+            ::operator delete(bbufCopy);
+
+            finalBuf = bbufNew;
+            finalSize = newSize;
+            generalIndex = nLists;
+        }
+
+        gui::mainWindow.setbbuf_ctrl(finalBuf, finalSize);
+        ::operator delete(finalBuf);
+
+        gui::mainWindow.setidOfList_ctrl(0, generalIndex);
+        gui::mainWindow.setAuto_levelCtrl(0, true);
+        gui::mainWindow.setAKFInd_ctrl(0, true);
+        gui::mainWindow.setflag_level_ctrl(0, true);
+        gui::mainWindow.setbutton_ctrl(0, true);
+        gui::mainWindow.setUpdateModule_ctrl(0, true);
+
+        gui::mainWindow.setUpdateListRcv7Ctrl(0, true);
+        gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+        gui::mainWindow.setUpdateMenuSnd7Ctrl(0, true);
+
+        flog::info("[ARM+] buildControlStructFromDb: DONE, used {0} rows "
+                   "(General), generalIndex={1}, finalSize={2}",
+                   idx, generalIndex, finalSize);
+
+        return true;
+    }
+
+    void RemoteRadio::udpDbWorker(const std::string &ip, int port)
+    {
+        flog::info("udpDbWorker START (ip={0}, port={1})", ip, port);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        if (!isAsterPlus)
+        {
+            flog::warn("udpDbWorker: isAsterPlus == false, exit");
+            return;
+        }
+
+        int sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (sockfd < 0)
         {
-            std::cerr << "[ERROR] socket: " << strerror(errno) << std::endl;
+            flog::warn("udpDbWorker socket error: {0}", strerror(errno));
             return;
         }
 
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0)
+        sockaddr_in local{};
+        local.sin_family = AF_INET;
+        local.sin_port = htons(port);
+        local.sin_addr.s_addr = INADDR_ANY;
+
+        int reuse = 1;
+        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse));
+#ifdef SO_REUSEPORT
+        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char *)&reuse, sizeof(reuse));
+#endif
+
+        if (::bind(sockfd, reinterpret_cast<sockaddr *>(&local), sizeof(local)) < 0)
         {
-            std::cerr << "[ERROR] inet_pton: неверный IP " << ip << std::endl;
-            close(sockfd);
+            flog::warn("udpDbWorker bind {0}:<<{1}>> error: {2}", ip, port, strerror(errno));
+            ::close(sockfd);
             return;
         }
 
-        double frequency = 150000000;
-        int bandwidth = 220010;
+        sockaddr_in arm{};
+        arm.sin_family = AF_INET;
+        arm.sin_port = htons(port);
+        if (::inet_pton(AF_INET, ip.c_str(), &arm.sin_addr) <= 0)
+        {
+            flog::warn("udpDbWorker inet_pton error, ip={0}", ip);
+            ::close(sockfd);
+            return;
+        }
+
+        std::string instanceStr = "rpm" + nameInstance;
+        flog::warn("[UDP] DB worker started, bind ok :{0} ({1})", port, instanceStr);
+
+        int fl = ::fcntl(sockfd, F_GETFL, 0);
+        if (fl != -1)
+            ::fcntl(sockfd, F_SETFL, fl | O_NONBLOCK);
+
+        auto cooldownUntil = std::chrono::steady_clock::time_point::min();
+        char ack[256]{};
+        int acklen = 0;
+
+        while (!stopUdpDBSender)
+        {
+            auto nowLoop = std::chrono::steady_clock::now();
+            if (nowLoop < cooldownUntil)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+
+            for (;;)
+            {
+                sockaddr_in peer{};
+                socklen_t plen = sizeof(peer);
+                char buf[1024];
+
+                ssize_t n = ::recvfrom(sockfd, buf, sizeof(buf) - 1, 0, reinterpret_cast<sockaddr *>(&peer), &plen);
+                if (n < 0)
+                {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        break;
+
+                    flog::warn("udpDbWorker recvfrom error: {0}", strerror(errno));
+                    break;
+                }
+
+                buf[n] = '\0';
+                std::cout << "[RX-DB] " << buf << "  from " << ::inet_ntoa(peer.sin_addr)
+                          << ":" << ntohs(peer.sin_port) << "\n";
+
+                char inst[128] = {0};
+                char s_unixt[32] = {0};
+                char s_task[32] = {0};
+                char s_ws[32] = {0};
+
+                int matched = ::sscanf(buf, "DBSEND;%127[^;];%31[^;];%31[^;];%31[^;]", inst, s_unixt, s_task, s_ws);
+                if (matched != 4)
+                    continue;
+                if (instanceStr != inst)
+                    continue;
+
+                cooldownUntil = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+
+                uint32_t unixtime = static_cast<uint32_t>(::strtoul(s_unixt, nullptr, 10));
+                uint32_t task_id = static_cast<uint32_t>(::strtoul(s_task, nullptr, 10));
+                int ws = static_cast<int>(::strtol(s_ws, nullptr, 10));
+                if (ws < 0 || ws > 5)
+                    ws = 0;
+
+                currentTaskId.store(task_id, std::memory_order_relaxed);
+
+                if (ws == 0)
+                {
+                    flog::info("[ARM+] DBSEND: ws=0 -> stop all modes locally, no DB query. inst={0}, task_id={1}",
+                               instanceStr, task_id);
+
+                    gui::mainWindow.setbutton_srch(0, false);
+                    gui::mainWindow.setUpdateModule_srch(0, true);
+                    gui::mainWindow.setUpdateMenuRcv5Srch(true);
+                    gui::mainWindow.setUpdateMenuSnd5Srch(0, true);
+
+                    gui::mainWindow.setbutton_scan(0, false);
+                    gui::mainWindow.setUpdateModule_scan(0, true);
+                    gui::mainWindow.setUpdateMenuRcv6Scan(true);
+                    gui::mainWindow.setUpdateMenuSnd6Scan(0, true);
+
+                    gui::mainWindow.setbutton_ctrl(0, false);
+                    gui::mainWindow.setUpdateModule_ctrl(0, true);
+                    gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+                    gui::mainWindow.setUpdateMenuSnd7Ctrl(0, true);
+                }
+                else
+                {
+                    bool canStartDb =
+                        !dbInFlight.load(std::memory_order_relaxed) || lastDbTaskId != task_id;
+
+                    if (canStartDb)
+                    {
+                        dbInFlight.store(true, std::memory_order_relaxed);
+                        lastDbTaskId = task_id;
+                        std::string connStr = this->kConnStr;
+
+                        std::thread([this, task_id, connStr]
+                                    {
+                        try
+                        {
+                            flog::warn("udpDbWorker DB thread start, task_id={0}", task_id);
+                            pqxx::connection conn{connStr};
+                            if (!conn.is_open())
+                                throw std::runtime_error("[DB] cannot open connection");
+
+                            try
+                            {
+                                conn.prepare("q",
+                                    "SELECT t.id AS task_id, "
+                                    "       b.nazv AS bank_name, "
+                                    "       f.freq1 AS freq, "
+                                    "       f.freq2 AS freq2, "
+                                    "       modul, band, signal, step, b.regim "
+                                    "FROM public.task AS t "
+                                    "LEFT JOIN public.bank AS b "
+                                    "       ON b.id = t.id_bank "
+                                    "      AND b.del = 'N' "
+                                    "LEFT JOIN public.freq AS f "
+                                    "       ON f.id_bank = b.id "
+                                    "WHERE t.id = $1 "
+                                    "ORDER BY t.id, f.freq1;");
+                            }
+                            catch (const pqxx::usage_error &)
+                            {
+                            }
+
+                            pqxx::work txn{conn};
+                            auto r1 = txn.exec_prepared("q", task_id);
+
+                            flog::info("[DB] r1 rows={0}", r1.size());
+
+                            for (std::size_t i = 0; i < r1.size(); ++i)
+                            {
+                                const auto &row = r1[i];
+                                auto safe_get = [&](const char *col) -> std::string
+                                {
+                                    try
+                                    {
+                                        if (row[col].is_null())
+                                            return "-";
+                                        return row[col].as<std::string>();
+                                    }
+                                    catch (const std::exception &e)
+                                    {
+                                        return std::string("<err: ") + e.what() + ">";
+                                    }
+                                    catch (...)
+                                    {
+                                        return "<err>";
+                                    }
+                                };
+
+                                std::cout << "[DB] row[" << i << "] task_id=" << safe_get("task_id")
+                                          << " regim=" << safe_get("regim")
+                                          << " bank_name=" << safe_get("bank_name")
+                                          << " freq=" << safe_get("freq")
+                                          << " freq2=" << safe_get("freq2")
+                                          << " modul=" << safe_get("modul")
+                                          << " band=" << safe_get("band")
+                                          << " signal=" << safe_get("signal")
+                                          << " step=" << safe_get("step") << std::endl;
+                            }
+
+                            std::string bankName;
+                            std::string regim;
+
+                            if (!r1.empty())
+                            {
+                                bankName = r1[0]["bank_name"].is_null()
+                                           ? "General"
+                                           : r1[0]["bank_name"].as<std::string>("");
+                                if (!r1[0]["regim"].is_null())
+                                    regim = r1[0]["regim"].as<std::string>("");
+                            }
+                            else
+                            {
+                                flog::info("udpDbWorker: ERROR r1.empty(), task_id={0}", task_id);
+                            }
+
+                            int ws_local = -1;
+                            if (regim == "Спостереження")
+                                ws_local = 3;
+                            else if (regim == "Сканування")
+                                ws_local = 2;
+                            else if (regim == "Пошук")
+                                ws_local = 1;
+                            else if (regim == "Ручний")
+                                ws_local = 0;
+
+                            if (ws_local == 1)
+                            {
+                                int instNum = std::stoi(this->nameInstance);
+                                bool blOk = buildBlacklistFromDb(connStr, instNum);
+                                bool srchOk = buildSearchStructFromDb(r1);
+                                flog::info("[ARM+] DBSEND search: blOk={0}, srchOk={1}", blOk, srchOk);
+                            }
+                            else if (ws_local == 2)
+                            {
+                                bool scOk = buildScanStructFromDb(r1);
+                                flog::info("[ARM+] Scan: scOk={0}", scOk);
+                            }
+                            else if (ws_local == 3)
+                            {
+                                bool ctOk = buildControlStructFromDb(r1);
+                                flog::info("[ARM+] Control: ctOk={0}", ctOk);
+                            }
+
+                            txn.commit();
+                        }
+                        catch (const pqxx::broken_connection &e)
+                        {
+                            flog::warn("[DB] broken_connection: {0}", e.what());
+                        }
+                        catch (const std::exception &e)
+                        {
+                            flog::warn("[DB] exception: {0}", e.what());
+                        }
+
+                        this->dbInFlight.store(false, std::memory_order_relaxed); })
+                            .detach();
+
+                        // ---------- ТУТ ДОБАВЛЕН DBASK ----------
+                        char ask[256];
+                        int asklen = std::snprintf(
+                            ask, sizeof(ask),
+                            "DBASK;%s;%u;%u;%d;",
+                            instanceStr.c_str(), unixtime, task_id, ws);
+                        flog::info("[ACK IDLE] {0}", ack);
+                        /*                                
+                        if (asklen > 0)
+                        {
+                            // 1) На порт, с которого пришёл DBSEND (peer)
+                            int r1 = ::sendto(
+                                sockfd, ask, (size_t)asklen, 0,
+                                reinterpret_cast<const sockaddr *>(&peer),
+                                sizeof(peer));
+                            if (r1 < 0)
+                                flog::warn("[UDP] DBASK sendto(peer) failed: {0}", strerror(errno));
+
+                            // 2) На порт 45712 ARM+
+                            sockaddr_in armMain{};
+                            armMain.sin_family = AF_INET;
+                            armMain.sin_port = htons(45712);
+                            armMain.sin_addr = peer.sin_addr;
+
+                            int r2 = ::sendto(
+                                sockfd, ask, (size_t)asklen, 0,
+                                reinterpret_cast<const sockaddr *>(&armMain),
+                                sizeof(armMain));
+                            if (r2 < 0)
+                                flog::warn("[UDP] DBASK sendto(45712) failed: {0}", strerror(errno));
+                            else
+                                flog::info("[UDP] DBASK sent: {0}", ask);
+                        }
+                        */
+                        // ----------------------------------------
+                    }
+                }
+
+                /*
+                acklen = ::snprintf(ack, sizeof(ack), "DBACK;%s;%u;%u;%d;", instanceStr.c_str(), unixtime, task_id, ws);
+            
+                if (acklen > 0)
+                {
+                    int r = ::sendto(sockfd, ack, (size_t)acklen, 0,
+                                     reinterpret_cast<const sockaddr *>(&arm),
+                                     sizeof(arm));
+                    if (r < 0)
+                        flog::warn("DBACK sendto(ARM+) error: {0}", strerror(errno));
+                    else
+                        flog::info("[ACK->ARM+] {0}:{1} \"{2}\"", ip, port, ack);
+                }
+                */
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        ::close(sockfd);
+        flog::info("udpDbWorker STOP");
+    }
+
+    //===========================================================================================
+    void RemoteRadio::udpReceiverWorker(const std::string &ip, int port, const std::string &prefix)
+    {
+        flog::info("udpReceiverWorker (telemetry) START (ip={0}, port={1})", ip, port);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+        // ---- один-единственный UDP-сокет для ТЕЛЕМЕТРИИ ----
+        int sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (sockfd < 0)
+        {
+            std::cerr << "[ERROR] socket: " << strerror(errno) << "\n";
+            return;
+        }
+
+        // привязываем источник к 0.0.0.0:port (для телеметрии это 45712)
+        sockaddr_in local{};
+        local.sin_family = AF_INET;
+        local.sin_port = htons(port);
+        local.sin_addr.s_addr = INADDR_ANY;
+
+        int reuse = 1;
+        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse));
+#ifdef SO_REUSEPORT
+        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char *)&reuse, sizeof(reuse));
+#endif
+
+        if (::bind(sockfd, reinterpret_cast<sockaddr *>(&local), sizeof(local)) < 0)
+        {
+            std::cerr << "[ERROR] bind " << ip.c_str() << ":<<" << port << ">>: " << strerror(errno) << "\n";
+            ::close(sockfd);
+            return;
+        }
+
+        // адрес ARM (получатель телеметрии)
+        sockaddr_in arm{};
+        arm.sin_family = AF_INET;
+        arm.sin_port = htons(port);
+        if (::inet_pton(AF_INET, ip.c_str(), &arm.sin_addr) <= 0)
+        {
+            std::cerr << "[ERROR] inet_pton: " << ip << "\n";
+            ::close(sockfd);
+            return;
+        }
+
+        // instance / версия
+        std::string instanceStr = "rpm" + nameInstance;       // "rpm1"
+        std::string rpmprefix = instanceStr + "v." + Version; // "rpm1v.1.2.4"
+
+        flog::warn("[UDP] telemetry started, bind ok :{0} ({1})", port, instanceStr);
+
+        // неблокирующий сокет нам тут уже не нужен для recvfrom — мы его вообще не вызываем
+        // но на всякий случай оставим неблокирующий режим, вреда нет
+        int fl = ::fcntl(sockfd, F_GETFL, 0);
+        if (fl != -1)
+            ::fcntl(sockfd, F_SETFL, fl | O_NONBLOCK);
+
+        // тик телеметрии
+        const auto tick = std::chrono::milliseconds(100);
+        auto next_tick = std::chrono::steady_clock::now() + tick;
 
         while (!stopUdpSender)
         {
-            std::time_t unixtime = std::time(nullptr);
-            // UDP отправлено: rpm1v.1.2.4;150000000;220010;1749647874;
-            std::string rpmprefix = "rpm" + nameInstance + "v." + Version;
-            // SrvStatus;
-            double _freq = gui::waterfall.getCenterFrequency();
-            frequency = _freq + gui::waterfall.getViewOffset();
-            bandwidth = gui::mainWindow.getbandwidth();
-
-            std::string message = rpmprefix + ";" +
-                                  std::to_string(static_cast<int64_t>(frequency)) + ";" +
-                                  std::to_string(bandwidth) + ";" +
-                                  std::to_string(unixtime) + ";";
-
-            ssize_t sent = sendto(sockfd, message.c_str(), message.size(), 0,
-                                  reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-            if (sent < 0)
+            // 1) тик телеметрии по расписанию
+            auto now = std::chrono::steady_clock::now();
+            if (now >= next_tick)
             {
-                std::cerr << "[WARNING] sendto: " << strerror(errno) << std::endl;
+                // --- собираем актуальные поля ---
+                double _freq = gui::waterfall.getCenterFrequency();
+                double _offset = 0.0;
+                int _tuningMode = gui::mainWindow.gettuningMode();
+
+                if (_tuningMode != tuner::TUNER_MODE_CENTER)
+                {
+                    std::string nameVFO = "Канал приймання";
+                    auto it = gui::waterfall.vfos.find(nameVFO);
+                    if (it != gui::waterfall.vfos.end())
+                        _offset = it->second->generalOffset;
+                }
+
+                double frequency = _freq + _offset;
+                int bandwidth = gui::mainWindow.getbandwidth();
+                int demod_id = gui::mainWindow.getselectedDemodID();
+                bool isPlaying = gui::mainWindow.isPlaying();
+                bool recording = gui::mainWindow.getRecording();
+                bool search = gui::mainWindow.getbutton_srch(0);
+                bool scan = gui::mainWindow.getbutton_scan(0);
+                bool control = gui::mainWindow.getbutton_ctrl(0);
+
+                int work_status = 0;
+                if (control)
+                    work_status = 4;
+                else if (scan)
+                    work_status = 3;
+                else if (search)
+                    work_status = 2;
+                else if (recording)
+                    work_status = 1;
+
+                int ws_sent = work_status; // currentWorkStatus.load(...) при желании
+                unsigned task_sent = static_cast<unsigned>(currentTaskId.load(std::memory_order_relaxed));
+
+                // --- проверяем, изменилось ли что-то КРОМЕ unixtime ---
+                bool changed =
+                    !prevInit ||
+                    frequency != prevFrequency ||
+                    bandwidth != prevBandwidth ||
+                    demod_id != prevDemodId ||
+                    isPlaying != prevIsPlaying ||
+                    ws_sent != prevWorkStatus ||
+                    task_sent != prevTaskId;
+
+                auto now2 = std::chrono::steady_clock::now();
+                auto diff = now2 - lastSend;
+
+                // раз в FORCE_PERIOD (10 сек) — принудительная отправка
+                bool forceSend = (diff >= FORCE_PERIOD);
+                // не чаще раза в секунду даже при изменениях
+                bool canSendNow = (diff >= std::chrono::seconds(1));
+
+                if (changed && !canSendNow)
+                    changed = false;
+
+                bool needTelemetry = changed || forceSend;
+
+                if (needTelemetry)
+                {
+                    uint32_t unixtime = static_cast<uint32_t>(::time(nullptr));
+                    char telemetry[512];
+
+                    int len = ::snprintf(telemetry,
+                                         sizeof(telemetry),
+                                         "%s;%lld;%d;%u;%d;%d;%d;%u;",
+                                         rpmprefix.c_str(), // rpm1v.1.2.4
+                                         static_cast<long long>(frequency),
+                                         static_cast<int>(bandwidth),
+                                         static_cast<unsigned>(unixtime),
+                                         static_cast<int>(demod_id),
+                                         isPlaying ? 1 : 0,
+                                         ws_sent,
+                                         task_sent);
+
+                    if (len > 0)
+                    {
+                        ssize_t sent = ::sendto(sockfd,
+                                                telemetry,
+                                                static_cast<size_t>(len),
+                                                0,
+                                                reinterpret_cast<const sockaddr *>(&arm),
+                                                sizeof(arm));
+                        if (sent < 0)
+                        {
+                            std::cerr << "[WARNING] sendto (telemetry): " << strerror(errno) << std::endl;
+                        }
+                        else
+                        {
+                            if (info_udp >= 0 || changed)
+                            {
+                                flog::info("[UDP] {0} ->{1}:{2}",
+                                           telemetry,
+                                           ::inet_ntoa(arm.sin_addr),
+                                           ntohs(arm.sin_port));
+                                info_udp = 0;
+                            }
+                            else
+                            {
+                                info_udp++;
+                            }
+
+                            // обновляем предыдущее состояние
+                            prevInit = true;
+                            prevFrequency = frequency;
+                            prevBandwidth = bandwidth;
+                            prevDemodId = demod_id;
+                            prevIsPlaying = isPlaying;
+                            prevWorkStatus = ws_sent;
+                            prevTaskId = task_sent;
+                            lastSend = now2;
+                        }
+                    }
+                }
+
+                next_tick = now + tick;
+            }
+
+            // 2) короткий сон, чтобы не крутить CPU (с учётом ближайшего тика)
+            auto remain = next_tick - std::chrono::steady_clock::now();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(remain);
+            if (ms.count() > 0)
+            {
+                std::this_thread::sleep_for(
+                    (ms < std::chrono::milliseconds(100)) ? ms
+                                                          : std::chrono::milliseconds(100));
             }
             else
             {
-                std::cout << "[INFO] UDP отправлено: " << message << std::endl;
+                // если мы уже "опаздываем" по тикам — сделаем небольшой sleep
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
+        } // while (!stopUdpSender)
 
-            // std::this_thread::sleep_for(std::chrono::seconds(10));
-            // спать с прерыванием
-            int totalSleep = 0;
-            while (totalSleep < 100 && !stopUdpSender)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                totalSleep++;
-            }
-        }
-
-        close(sockfd);
-        std::cout << "[INFO] UDP-поток завершён\n";
+        ::close(sockfd);
+        flog::info("udpReceiverWorker (telemetry) STOP");
     }
 
     // ИЗМЕНЕНО: ServerHandler теперь очень быстрый (Производитель)
@@ -1513,21 +3668,4 @@ namespace remote
         std::vector<dsp::complex_t> data_copy(data, data + count);
         _this->audioQueue.push(std::move(data_copy));
     }
-    /*
-    void RemoteRadio::ServerHandler(uint8_t *data, int count, void *ctx)
-    {
-        // if(!isServer) return;
-        // RemoteRadio* _this = (RemoteRadio*)ctx;
-        // Write to network
-
-        bb_pkt_hdr->type = PACKET_TYPE_AIRSPY;
-        bb_pkt_hdr->size = sizeof(InfoHeader) + count;
-        // flog::info(" ServerHandler ...write!!! count {0}. bb_pkt_hdr->size {1}", count, bb_pkt_hdr->size);
-        memcpy(&bbuf[sizeof(InfoHeader)], data, count);
-        if (conn && conn->isOpen())
-        {
-            conn->write(bb_pkt_hdr->size, bbuf);
-        }
-    }
-    */
 };

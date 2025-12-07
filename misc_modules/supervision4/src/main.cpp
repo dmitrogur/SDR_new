@@ -7,6 +7,7 @@
 #include <thread>
 #include <ctm.h>
 #include <radio_interface.h>
+#include <memory>
 
 #include <signal_path/signal_path.h>
 #include <vector>
@@ -439,13 +440,14 @@ public:
 
         flog::info("[4 postInit] postInit currSource {0}, isARM {1}, isServer {2}, name {3}, status_auto_level4 {4}", currSource, isARM, isServer, name, status_auto_level4);
 
+        getScanLists();
+
         if (isARM)
         {
             gui::mainWindow.setFirstStart_ctrl(MAX_SERVERS, true);
             gui::mainWindow.setCTRLListNamesTxt(listNamesTxt);
             // gui::mainWindow.setAuto_levelCtrl(MAX_SERVERS, status_auto_level4);
             // gui::mainWindow.setLevelDbCtrl(MAX_SERVERS, curr_level);
-            getScanLists();
             uint8_t CurrSrvr = gui::mainWindow.getCurrServer();
             gui::mainWindow.setidOfList_ctrl(CurrSrvr, selectedListId);
             gui::mainWindow.setflag_level_ctrl(CurrSrvr, getflag_level[CurrSrvr]);
@@ -524,7 +526,7 @@ private:
                 return;
             }
 
-            flog::info("List change requested: from '{0}' to '{1}' (id={2}).",oldSelectedListName, newSelectedListName, newSelectedId);
+            flog::info("List change requested: from '{0}' to '{1}' (id={2}).", oldSelectedListName, newSelectedListName, newSelectedId);
 
             // --- Шаг 3: Атомарно обновить конфигурацию под одной блокировкой ---
             config.acquire();
@@ -555,27 +557,32 @@ private:
             }
             config.release(true);
 
-            // --- Шаг 4: Обновить состояние модуля и GUI ---
-            loadByName(newSelectedListName);
-            bookmarksUpdated.store(true); // Сигнал для worker()
-
+            { // <--- Начало критической секции для bookmarks
+                std::lock_guard<std::mutex> lock(scan3Mtx);
+                // --- Шаг 4: Обновить состояние модуля и GUI ---
+                loadByName(newSelectedListName);
+                bookmarksUpdated.store(true); // Сигнал для worker()
+            }
             getflag_level[CurrSrvr] = flagLevelFromGui;
             getgen_level[CurrSrvr] = levelDbFromGui;
 
             saveByName(newSelectedListName);
             refreshLists();
             refreshWaterfallBookmarks(false);
-            flog::info("State updated for new list '{0}'.", newSelectedListName);
+            // flog::info("State updated for new list '{0}'.", newSelectedListName);
 
             // --- Шаг 5: Побочные эффекты (тюнинг и т.д.) ---
             if (!_first && currentState.load() == ModuleState::STOPPED)
             {
                 double curr_freq = 0;
-                if (!bookmarks.empty())
                 {
-                    curr_freq = bookmarks.begin()->second.frequency;
+                    std::lock_guard<std::mutex> lock(scan3Mtx);
+                    if (!bookmarks.empty())
+                    {
+                        curr_freq = bookmarks.begin()->second.frequency;
+                    }
                 }
-                if (curr_freq > 0)
+                if (curr_freq > 10000)
                 {
                     if (!gui::waterfall.selectedVFO.empty())
                         tuner::centerTuning(gui::waterfall.selectedVFO, curr_freq);
@@ -599,6 +606,10 @@ private:
         SupervisorModeModule *_this = (SupervisorModeModule *)ctx;
         // if (currSource != SOURCE_ARM) return;
         bool _first = true;
+        if (!_this->isServer && !_this->isARM)
+        {
+            return;
+        }
         while (_this->infoThreadStarted.load())
         {
             if (core::g_isExiting)
@@ -606,8 +617,9 @@ private:
                 // Программа завершается. Больше ничего не делаем.
                 // Просто ждем, пока нас остановят через pleaseStop.
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                flog::warn("if (core::g_isExiting)");
-                continue;
+                flog::warn("if (core::g_isExiting) supervision");
+                // continue;
+                break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             {
@@ -625,15 +637,233 @@ private:
 
                 if (_this->isARM)
                 {
+                    _this->currSource = sourcemenu::getCurrSource();
+                    gui::mainWindow.setUpdateMenuRcv7Ctrl(false);
+                    if (_this->currentState.load() == _this->ModuleState::STOPPED)
+                    {
+                        // flog::info("gui::mainWindow.getUpdateMenuRcv7Ctrl() _this->ModuleState::STOPPED");
+
+                        if (!_first)
+                            _first = gui::mainWindow.getFirstConn(NUM_MOD);
+                        bool _update = false;
+                       
+                        if (gui::mainWindow.getUpdateListRcv7Ctrl(currSrvr))
+                        {
+                            std::lock_guard<std::mutex> lck(_this->scan3Mtx);
+                            flog::info("gui::mainWindow.getUpdateListRcv7Ctrl() [ARM]");
+                            gui::mainWindow.setUpdateListRcv7Ctrl(currSrvr, false);
+                            /*
+                            // Получаем данные
+                            int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_ctrl();
+                            if (cnt_bbuf <= 0)
+                            {
+                                flog::warn("getUpdateListRcv7Ctrl[ARM]: Buffer from GUI is empty or invalid (size={0})", cnt_bbuf);
+                            }
+                            else
+                            {
+                                CtrlModeList sbm;
+                                if (cnt_bbuf % sizeof(sbm) != 0)
+                                {
+                                    flog::error("getUpdateListRcv7Ctrl[ARM]: Buffer size ({0}) is not a multiple of CtrlModeList ({1})",
+                                                cnt_bbuf, sizeof(sbm));
+                                }
+                                else
+                                {
+                                    auto bbufRCV = std::make_unique<uint8_t[]>(cnt_bbuf);
+                                    memcpy(bbufRCV.get(), gui::mainWindow.getbbuf_ctrl(), cnt_bbuf);
+
+                                    // Проходим по всем спискам в буфере
+                                    for (int poz = 0; poz < cnt_bbuf; poz += (int)sizeof(sbm))
+                                    {
+                                        memcpy(&sbm, bbufRCV.get() + poz, sizeof(sbm));
+
+                                        // Безопасное имя списка
+                                        std::string listname(sbm.listName,
+                                                             strnlen(sbm.listName, sizeof(sbm.listName)));
+
+                                        if (listname.empty())
+                                        {
+                                            flog::warn("getUpdateListRcv7Ctrl[ARM]: empty listname at pos={0}, skip", poz);
+                                            continue;
+                                        }
+
+                                        // *** НА АРМ ОБНОВЛЯЕМ ТОЛЬКО 'General' ***
+                                        if (listname != "General")
+                                        {
+                                            flog::info("getUpdateListRcv7Ctrl[ARM]: skip list '{0}', only 'General' is updated", listname);
+                                            continue;
+                                        }
+
+                                        flog::info("getUpdateListRcv7Ctrl[ARM]: updating 'General' from buffer");
+
+                                        json def = json::object();
+                                        def["bookmarks"] = json::object();
+
+                                        for (int i = 0; i < sbm.sizeOfList; i++)
+                                        {
+                                            std::string bookmarkname = "C" + std::to_string(sbm.bookmarkName[i]);
+                                            json &bookmark = def["bookmarks"][bookmarkname];
+
+                                            bookmark["dopinfo"] = bookmarkname;
+
+                                            // frequency
+                                            if (std::isfinite(sbm.frequency[i]))
+                                                bookmark["frequency"] = sbm.frequency[i];
+                                            else
+                                                bookmark["frequency"] = 0.0;
+
+                                            // bandwidth
+                                            if (std::isfinite(sbm.bandwidth[i]))
+                                                bookmark["bandwidth"] = sbm.bandwidth[i];
+                                            else
+                                                bookmark["bandwidth"] = 12500.0;
+
+                                            // level
+                                            if (std::isfinite(sbm.level[i]))
+                                                bookmark["level"] = sbm.level[i];
+                                            else
+                                                bookmark["level"] = -100.0;
+
+                                            bookmark["mode"] = sbm.mode[i];
+
+                                            std::string vsink = "vsink_" + std::to_string(_this->numInstance) + "_" + bookmarkname;
+                                            bookmark["scard"] = vsink;
+
+                                            // Signal
+                                            try
+                                            {
+                                                if (std::isfinite(sbm.Signal[i]))
+                                                    bookmark["Signal"] = sbm.Signal[i];
+                                                else
+                                                    bookmark["Signal"] = 0;
+                                            }
+                                            catch (const std::exception &e)
+                                            {
+                                                bookmark["Signal"] = 0;
+                                                std::cerr << "Exception while accessing Signal for "
+                                                          << bookmarkname << ": " << e.what() << '\n';
+                                            }
+                                        }
+
+                                        def["showOnWaterfall"] = true;
+                                        def["flaglevel"] = gui::mainWindow.getflag_level_ctrl(currSrvr);
+                                        def["genlevel"] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+
+                                        _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
+                                        _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+
+                                        config.acquire();
+                                        try
+                                        {
+                                            // ВАЖНО: на АРМ перетираем только lists["General"]
+                                            config.conf["lists"]["General"] = def;
+                                        }
+                                        catch (const std::exception &e)
+                                        {
+                                            flog::error("getUpdateListRcv7Ctrl[ARM]: failed to update lists['General']: {0}", e.what());
+                                        }
+                                        config.release(true);
+                                    }
+
+                                    _this->refreshLists();
+                                    _this->refreshWaterfallBookmarks(false);
+
+                                    gui::mainWindow.setCTRLListNamesTxt(_this->listNamesTxt);
+                                    gui::mainWindow.setUpdateCTRLListForBotton(currSrvr, true);
+
+                                    _update = true;
+                                }
+                            }
+                            */
+                        }
+                        
+                        // if (_update || !gui::mainWindow.getUpdateMenuSnd7Ctrl(currSrvr))
+                        if (_update)
+                        {
+                            _this->updateListAndState(_first, _update);
+                        }
+                        // flog::info("!!! 8 (end of list update block)");
+
+                        if (gui::mainWindow.getUpdateModule_ctrl(currSrvr))
+                        {
+                            gui::mainWindow.setUpdateModule_ctrl(currSrvr, false);
+                        }
+                        if (_this->status_AKF != gui::mainWindow.getAKFInd_ctrl(currSrvr))
+                        {
+                            _this->status_AKF = gui::mainWindow.getAKFInd_ctrl(currSrvr);
+                        }
+                        if (_this->status_auto_level4 != gui::mainWindow.getAuto_levelCtrl(currSrvr))
+                        {
+                            _this->status_auto_level4 = gui::mainWindow.getAuto_levelCtrl(currSrvr);
+                            config.acquire();
+                            config.conf["status_auto_level"] = _this->status_auto_level4;
+                            config.release(true);
+                        }
+                        if (gui::mainWindow.getLevelDbCtrl(currSrvr) != _this->getgen_level[currSrvr])
+                        {
+                            _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                        }
+                        if (gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr) != _this->maxRecWaitTime)
+                        {
+                            _this->maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr);
+                            config.acquire();
+                            config.conf["maxRecWaitTime"] = _this->maxRecWaitTime;
+                            config.release(true);
+                        }
+                        _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
+                    }
+                    else
+                    {
+                        _this->updateWhenRun = true;
+                        if (!_this->status_auto_level4)
+                        {
+                            if (gui::mainWindow.getLevelDbCtrl(currSrvr) != _this->getgen_level[currSrvr])
+                            {
+                                _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                            }
+                        }
+                    }
+
                     if (!gui::mainWindow.getUpdateMenuSnd7Ctrl(currSrvr))
                     {
+                        // if ((gui::mainWindow.getbutton_ctrl(currSrvr) && gui::mainWindow.getFirstStart_ctrl(currSrvr)) || _this->selectedListId != gui::mainWindow.getidOfList_ctrl(currSrvr))
+                        {
+                            if (_this->getgen_level[currSrvr] != gui::mainWindow.getLevelDbCtrl(currSrvr))
+                            {
+                                _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                                config.acquire();
+                                config.conf["genlevel"] = _this->getgen_level[currSrvr];
+                                config.release(true);
+
+                                flog::info("UPDATE _this->intLevel {0}", _this->getgen_level[currSrvr]);
+                            }
+                            if (_this->status_AKF != gui::mainWindow.getAKFInd_ctrl(currSrvr))
+                            {
+                                _this->status_AKF = gui::mainWindow.getAKFInd_ctrl(currSrvr);
+                                config.acquire();
+                                config.conf["status_AKF"] = _this->status_AKF;
+                                config.release(true);
+                                flog::info("UPDATE _this->status_AKF {0}", _this->status_AKF);
+                            }
+                            if (_this->status_auto_level4 != gui::mainWindow.getAuto_levelCtrl(currSrvr))
+                            {
+                                _this->status_auto_level4 = gui::mainWindow.getAuto_levelCtrl(currSrvr);
+                                config.acquire();
+                                config.conf["status_auto_level"] = _this->status_auto_level4;
+                                config.release(true);
+                                flog::info("UPDATE _this->status_auto_level {0}", _this->status_auto_level4);
+                            }
+                        }
                         if (_this->selectedListId != gui::mainWindow.getidOfList_ctrl(currSrvr))
                         {
-                            flog::info("ARM gui::mainWindow.getUpdateMenuRcv7Ctrl()");
+                            flog::info("ARM. selectedListId {0} != getidOfList_ctrl({1}) = {2}", _this->selectedListId, currSrvr, gui::mainWindow.getidOfList_ctrl(currSrvr));
                             if (gui::mainWindow.getidOfList_ctrl(currSrvr) < _this->listNames.size())
                                 _this->selectedListId = gui::mainWindow.getidOfList_ctrl(currSrvr);
                             else
+                            {
+                                gui::mainWindow.setidOfList_ctrl(currSrvr, 0);
                                 _this->selectedListId = 0;
+                            }
                             // gui::mainWindow.setMaxRecWaitTime_ctrl(MAX_SERVERS, _this->maxRecWaitTime);
                             gui::mainWindow.setflag_level_ctrl(currSrvr, _this->getflag_level[currSrvr]);
                             // gui::mainWindow.setlevel_ctrl(currSrvr, _this->getgen_level[currSrvr]);
@@ -650,24 +880,7 @@ private:
                             config.conf["lists"][_this->selectedListName]["flaglevel"] = gui::mainWindow.getflag_level_ctrl(currSrvr);
                             config.conf["lists"][_this->selectedListName]["genlevel"] = gui::mainWindow.getLevelDbCtrl(currSrvr);
                             _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
-                            // _this->flag_level = _this->getflag_level[currSrvr];
-                            // _this->getgen_level[currSrvr] = gui::mainWindow.getlevel_ctrl(currSrvr);
-                            // _this->genlevel = _this->getgen_level[currSrvr];
 
-                            /*
-                            if (config.conf["lists"][_this->selectedListName].contains("flaglevel")) {
-                                _this->flag_level = config.conf["lists"][_this->selectedListName]["flaglevel"];
-                            }
-                            else {
-                                config.conf["lists"][_this->selectedListName]["flaglevel"] = _this->flag_level;
-                            }
-                            if (config.conf["lists"][_this->selectedListName].contains("genlevel")) {
-                                _this->flag_level = config.conf["lists"][_this->selectedListName]["genlevel"];
-                            }
-                            else {
-                                config.conf["lists"][_this->selectedListName]["genlevel"] = _this->genlevel;
-                            }
-                            */
                             config.conf["selectedList"] = _this->selectedListName;
                             config.release(true);
                             _this->refreshWaterfallBookmarks(false);
@@ -676,31 +889,7 @@ private:
                             _this->saveByName(_this->selectedListName);
                             _this->refreshLists();
                         }
-                        if (_this->getgen_level[currSrvr] != gui::mainWindow.getLevelDbCtrl(currSrvr))
-                        {
-                            _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
-                            config.acquire();
-                            config.conf["genlevel"] = _this->getgen_level[currSrvr];
-                            config.release(true);
 
-                            flog::info("UPDATE _this->intLevel {0}", _this->getgen_level[currSrvr]);
-                        }
-                        if (_this->status_AKF != gui::mainWindow.getAKFInd_ctrl(currSrvr))
-                        {
-                            _this->status_AKF = gui::mainWindow.getAKFInd_ctrl(currSrvr);
-                            config.acquire();
-                            config.conf["status_AKF"] = _this->status_AKF;
-                            config.release(true);
-                            flog::info("UPDATE _this->status_AKF {0}", _this->status_AKF);
-                        }
-                        if (_this->status_auto_level4 != gui::mainWindow.getAuto_levelCtrl(currSrvr))
-                        {
-                            _this->status_auto_level4 = gui::mainWindow.getAuto_levelCtrl(currSrvr);
-                            config.acquire();
-                            config.conf["status_auto_level"] = _this->status_auto_level4;
-                            config.release(true);
-                            flog::info("UPDATE _this->status_auto_level {0}", _this->status_auto_level4);
-                        }
                         gui::mainWindow.setFirstStart_ctrl(currSrvr, false);
                     }
                 }
@@ -708,204 +897,202 @@ private:
                 if (_this->isServer && gui::mainWindow.getUpdateMenuRcv7Ctrl())
                 {
                     _this->currSource = sourcemenu::getCurrSource();
-                    if (!_first)
-                        _first = gui::mainWindow.getFirstConn(NUM_MOD);
-                    bool _update = false;
-
                     flog::info("gui::mainWindow.getUpdateMenuRcv7Ctrl()");
                     gui::mainWindow.setUpdateMenuRcv7Ctrl(false);
-                    if (gui::mainWindow.getUpdateListRcv7Ctrl(currSrvr)) //  && !_this->running
+                    if (_this->currentState.load() == _this->ModuleState::STOPPED)
                     {
-                        std::lock_guard<std::mutex> lck(_this->scan3Mtx);
-                        // std::lock_guard<std::mutex> lock(changeListsMtx);
-                        flog::info("gui::mainWindow.getUpdateListRcv7Ctrl()");
-                        gui::mainWindow.setUpdateListRcv7Ctrl(currSrvr, false);
-                        config.acquire();
-                        for (auto it = _this->listNames.begin(); it != _this->listNames.end(); ++it)
+                        flog::info("gui::mainWindow.getUpdateMenuRcv7Ctrl() _this->ModuleState::STOPPED");
+
+                        if (!_first)
+                            _first = gui::mainWindow.getFirstConn(NUM_MOD);
+                        bool _update = false;
+
+                        if (gui::mainWindow.getUpdateListRcv7Ctrl(currSrvr))
                         {
-                            std::string name = *it;
-                            if (name != "General")
+                            std::lock_guard<std::mutex> lck(_this->scan3Mtx);
+                            // std::lock_guard<std::mutex> lock(changeListsMtx);
+                            flog::info("gui::mainWindow.getUpdateListRcv7Ctrl()");
+                            gui::mainWindow.setUpdateListRcv7Ctrl(currSrvr, false);
+
+                            // Получаем данные и базово проверяем
+                            int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_ctrl();
+                            if (cnt_bbuf <= 0)
                             {
-                                // flog::info(" delete listName = {0}...", name);
-                                config.conf["lists"].erase(name);
+                                flog::warn("getUpdateListRcv7Ctrl: Buffer from GUI is empty or invalid (size={0}).", cnt_bbuf);
+                                continue; // Выходим, если данных нет
                             }
-                        }
-                        config.release(true);
+                            flog::info("gui::mainWindow.getUpdateListRcv7Ctrl() cnt_bbuf = {0}", cnt_bbuf);
 
-                        // --- НАЧАЛО ИСПРАВЛЕННОГО БЛОКА ---
-
-                        // Получаем данные и базово проверяем
-                        int cnt_bbuf = gui::mainWindow.getsizeOfbbuf_ctrl();
-                        if (cnt_bbuf <= 0)
-                        {
-                            flog::warn("getUpdateListRcv7Ctrl: Buffer from GUI is empty or invalid (size={0}).", cnt_bbuf);
-                            continue; // Выходим, если данных нет
-                        }
-                        flog::info("gui::mainWindow.getUpdateListRcv7Ctrl() cnt_bbuf = {0}", cnt_bbuf);
-
-                        // ИСПРАВЛЕНО: Проверяем, что размер буфера кратен размеру структуры, чтобы избежать сбоя
-                        CtrlModeList sbm;
-                        if (cnt_bbuf % sizeof(sbm) != 0)
-                        {
-                            flog::error("getUpdateListRcv7Ctrl: Buffer size ({0}) is not a multiple of structure size ({1}). Data is corrupted.", cnt_bbuf, sizeof(sbm));
-                            continue; // Критическая ошибка, выходим
-                        }
-
-                        // ИСПРАВЛЕНО: Используем new[]/delete[] для идиоматичности
-                        // uint8_t *bbufRCV = new uint8_t[cnt_bbuf];                         memcpy(bbufRCV, gui::mainWindow.getbbuf_ctrl(), cnt_bbuf);
-                        auto bbufRCV = std::make_unique<uint8_t[]>(cnt_bbuf);
-                        memcpy(bbufRCV.get(), gui::mainWindow.getbbuf_ctrl(), cnt_bbuf);
-
-                        // Цикл по структурам в буфере
-                        for (int poz = 0; poz < cnt_bbuf; poz += sizeof(sbm))
-                        {
-                            memcpy(&sbm, bbufRCV.get() + poz, sizeof(sbm));
-
-                            // ИСПРАВЛЕНО: Безопасное создание строки, защита от отсутствия '\0'
-                            std::string listname(sbm.listName, strnlen(sbm.listName, sizeof(sbm.listName)));
-
-                            if (listname.empty())
+                            // ИСПРАВЛЕНО: Проверяем, что размер буфера кратен размеру структуры, чтобы избежать сбоя
+                            CtrlModeList sbm;
+                            if (cnt_bbuf % sizeof(sbm) != 0)
                             {
-                                flog::warn("Skipping a record with an empty listname at position {0}", poz);
-                                continue;
+                                flog::error("getUpdateListRcv7Ctrl: Buffer size ({0}) is not a multiple of structure size ({1}). Data is corrupted.", cnt_bbuf, sizeof(sbm));
+                                continue; // Критическая ошибка, выходим
                             }
 
-                            json def = json::object();
-                            def["bookmarks"] = json::object();
+                            // ИСПРАВЛЕНО: Используем new[]/delete[] для идиоматичности
+                            // uint8_t *bbufRCV = new uint8_t[cnt_bbuf];                         memcpy(bbufRCV, gui::mainWindow.getbbuf_ctrl(), cnt_bbuf);
+                            auto bbufRCV = std::make_unique<uint8_t[]>(cnt_bbuf);
+                            memcpy(bbufRCV.get(), gui::mainWindow.getbbuf_ctrl(), cnt_bbuf);
 
-                            for (int i = 0; i < sbm.sizeOfList; i++)
+                            // Цикл по структурам в буфере
+                            for (int poz = 0; poz < cnt_bbuf; poz += sizeof(sbm))
                             {
-                                std::string bookmarkname = "C" + std::to_string(sbm.bookmarkName[i]);
-                                json &bookmark = def["bookmarks"][bookmarkname]; // Ссылка для удобства
+                                memcpy(&sbm, bbufRCV.get() + poz, sizeof(sbm));
 
-                                bookmark["dopinfo"] = bookmarkname;
+                                // ИСПРАВЛЕНО: Безопасное создание строки, защита от отсутствия '\0'
+                                std::string listname(sbm.listName, strnlen(sbm.listName, sizeof(sbm.listName)));
 
-                                // --- ДОБАВЛЕНЫ ЯВНЫЕ ПРОВЕРКИ ---
-
-                                // Проверка для frequency (предполагаем, что это float или double)
-                                if (std::isfinite(sbm.frequency[i]))
+                                if (listname.empty())
                                 {
-                                    bookmark["frequency"] = sbm.frequency[i];
-                                }
-                                else
-                                {
-                                    bookmark["frequency"] = 0.0; // Безопасное значение по умолчанию
-                                    continue;                    // Критическая ошибка, выходим
+                                    flog::warn("Skipping a record with an empty listname at position {0}", poz);
+                                    continue;
                                 }
 
-                                // Проверка для bandwidth
-                                if (std::isfinite(sbm.bandwidth[i]))
-                                {
-                                    bookmark["bandwidth"] = sbm.bandwidth[i];
-                                }
-                                else
-                                {
-                                    bookmark["bandwidth"] = 12500.0; // Безопасное значение по умолчанию
-                                }
+                                json def = json::object();
+                                def["bookmarks"] = json::object();
 
-                                // Проверка для level
-                                if (std::isfinite(sbm.level[i]))
+                                for (int i = 0; i < sbm.sizeOfList; i++)
                                 {
-                                    bookmark["level"] = sbm.level[i];
-                                }
-                                else
-                                {
-                                    bookmark["level"] = -100.0; // Безопасное значение по умолчанию
-                                }
+                                    std::string bookmarkname = "C" + std::to_string(sbm.bookmarkName[i]);
+                                    json &bookmark = def["bookmarks"][bookmarkname]; // Ссылка для удобства
 
-                                bookmark["mode"] = sbm.mode[i];
+                                    bookmark["dopinfo"] = bookmarkname;
 
-                                std::string vsink = "vsink_" + std::to_string(_this->numInstance) + "_" + bookmarkname;
-                                bookmark["scard"] = vsink;
+                                    // --- ДОБАВЛЕНЫ ЯВНЫЕ ПРОВЕРКИ ---
 
-                                // Проверка для Signal с дополнительной защитой try-catch
-                                try
-                                {
-                                    if (std::isfinite(sbm.Signal[i]))
+                                    // Проверка для frequency (предполагаем, что это float или double)
+                                    if (std::isfinite(sbm.frequency[i]))
                                     {
-                                        bookmark["Signal"] = sbm.Signal[i];
+                                        bookmark["frequency"] = sbm.frequency[i];
                                     }
                                     else
                                     {
-                                        bookmark["Signal"] = 0; // Безопасное значение по умолчанию
+                                        bookmark["frequency"] = 0.0; // Безопасное значение по умолчанию
+                                        continue;                    // Критическая ошибка, выходим
                                     }
+
+                                    // Проверка для bandwidth
+                                    if (std::isfinite(sbm.bandwidth[i]))
+                                    {
+                                        bookmark["bandwidth"] = sbm.bandwidth[i];
+                                    }
+                                    else
+                                    {
+                                        bookmark["bandwidth"] = 12500.0; // Безопасное значение по умолчанию
+                                    }
+
+                                    // Проверка для level
+                                    if (std::isfinite(sbm.level[i]))
+                                    {
+                                        bookmark["level"] = sbm.level[i];
+                                    }
+                                    else
+                                    {
+                                        bookmark["level"] = -100.0; // Безопасное значение по умолчанию
+                                    }
+
+                                    bookmark["mode"] = sbm.mode[i];
+
+                                    std::string vsink = "vsink_" + std::to_string(_this->numInstance) + "_" + bookmarkname;
+                                    bookmark["scard"] = vsink;
+
+                                    // Проверка для Signal с дополнительной защитой try-catch
+                                    try
+                                    {
+                                        if (std::isfinite(sbm.Signal[i]))
+                                        {
+                                            bookmark["Signal"] = sbm.Signal[i];
+                                        }
+                                        else
+                                        {
+                                            bookmark["Signal"] = 0; // Безопасное значение по умолчанию
+                                        }
+                                    }
+                                    catch (const std::exception &e)
+                                    {
+                                        bookmark["Signal"] = 0; // Безопасное значение при ошибке доступа
+                                        std::cerr << "Exception while accessing Signal for " << bookmarkname << ": " << e.what() << '\n';
+                                    }
+                                }
+
+                                def["showOnWaterfall"] = true;
+                                def["flaglevel"] = gui::mainWindow.getflag_level_ctrl(currSrvr);
+                                def["genlevel"] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+
+                                _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
+                                _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+
+                                // ИСПРАВЛЕНО: Блокировка только на время записи для повышения производительности
+                                config.acquire();
+                                try
+                                {
+                                    config.conf["lists"][listname] = def;
                                 }
                                 catch (const std::exception &e)
                                 {
-                                    bookmark["Signal"] = 0; // Безопасное значение при ошибке доступа
-                                    std::cerr << "Exception while accessing Signal for " << bookmarkname << ": " << e.what() << '\n';
+                                    flog::error("Failed to update config for list '{0}': {1}", listname, e.what());
                                 }
+                                config.release(true);
                             }
+                            // delete[] bbufRCV;
+                            // --- КОНЕЦ  БЛОКА ---
 
-                            def["showOnWaterfall"] = true;
-                            def["flaglevel"] = gui::mainWindow.getflag_level_ctrl(currSrvr);
-                            def["genlevel"] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                            _this->refreshLists();
+                            _this->refreshWaterfallBookmarks(false);
 
-                            _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
-                            _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                            gui::mainWindow.setCTRLListNamesTxt(_this->listNamesTxt);
+                            gui::mainWindow.setUpdateCTRLListForBotton(currSrvr, true);
+                            // gui::mainWindow.setScanListNamesTxt(currSrvr, _this->listNamesTxt);
+                            _update = true;
+                        }
+                        // _update = false;
+                        if (_update || !gui::mainWindow.getUpdateMenuSnd7Ctrl(currSrvr))
+                        {
+                            _this->updateListAndState(_first, _update);
+                        }
+                        // flog::info("!!! 8 (end of list update block)");
 
-                            // ИСПРАВЛЕНО: Блокировка только на время записи для повышения производительности
+                        if (gui::mainWindow.getUpdateModule_ctrl(currSrvr))
+                        {
+                            gui::mainWindow.setUpdateModule_ctrl(currSrvr, false);
+                        }
+                        if (_this->status_AKF != gui::mainWindow.getAKFInd_ctrl(currSrvr))
+                        {
+                            _this->status_AKF = gui::mainWindow.getAKFInd_ctrl(currSrvr);
+                        }
+                        if (_this->status_auto_level4 != gui::mainWindow.getAuto_levelCtrl(currSrvr))
+                        {
+                            _this->status_auto_level4 = gui::mainWindow.getAuto_levelCtrl(currSrvr);
                             config.acquire();
-                            try
-                            {
-                                config.conf["lists"][listname] = def;
-                            }
-                            catch (const std::exception &e)
-                            {
-                                flog::error("Failed to update config for list '{0}': {1}", listname, e.what());
-                            }
+                            config.conf["status_auto_level"] = _this->status_auto_level4;
                             config.release(true);
                         }
-                        // delete[] bbufRCV;
-                        // --- КОНЕЦ  БЛОКА ---
-
-                        _this->refreshLists();
-                        _this->refreshWaterfallBookmarks(false);
-
-                        gui::mainWindow.setCTRLListNamesTxt(_this->listNamesTxt);
-                        gui::mainWindow.setUpdateCTRLListForBotton(currSrvr, true);
-                        // gui::mainWindow.setScanListNamesTxt(currSrvr, _this->listNamesTxt);
-                        _update = true;
+                        if (gui::mainWindow.getLevelDbCtrl(currSrvr) != _this->getgen_level[currSrvr])
+                        {
+                            _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                        }
+                        if (gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr) != _this->maxRecWaitTime)
+                        {
+                            _this->maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr);
+                            config.acquire();
+                            config.conf["maxRecWaitTime"] = _this->maxRecWaitTime;
+                            config.release(true);
+                        }
+                        _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
                     }
-                    // _update = false;
-                    if (_update || !gui::mainWindow.getUpdateMenuSnd7Ctrl(currSrvr))
+                    else
                     {
-                        _this->updateListAndState(_first, _update);
+                        _this->updateWhenRun = true;
+                        if (!_this->status_auto_level4)
+                        {
+                            if (gui::mainWindow.getLevelDbCtrl(currSrvr) != _this->getgen_level[currSrvr])
+                            {
+                                _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
+                            }
+                        }
                     }
-                    // flog::info("!!! 8 (end of list update block)");
-
-                    if (gui::mainWindow.getUpdateModule_ctrl(currSrvr))
-                    {
-                        gui::mainWindow.setUpdateModule_ctrl(currSrvr, false);
-                    }
-                    if (_this->status_AKF != gui::mainWindow.getAKFInd_ctrl(currSrvr))
-                    {
-                        _this->status_AKF = gui::mainWindow.getAKFInd_ctrl(currSrvr);
-                    }
-                    if (_this->status_auto_level4 != gui::mainWindow.getAuto_levelCtrl(currSrvr))
-                    {
-                        _this->status_auto_level4 = gui::mainWindow.getAuto_levelCtrl(currSrvr);
-                        config.acquire();
-                        config.conf["status_auto_level"] = _this->status_auto_level4;
-                        config.release(true);
-                    }
-                    if (gui::mainWindow.getLevelDbCtrl(currSrvr) != _this->getgen_level[currSrvr])
-                    {
-                        _this->getgen_level[currSrvr] = gui::mainWindow.getLevelDbCtrl(currSrvr);
-                    }
-                    if (gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr) != _this->maxRecWaitTime)
-                    {
-                        _this->maxRecWaitTime = gui::mainWindow.getMaxRecWaitTime_ctrl(currSrvr);
-                        config.acquire();
-                        config.conf["maxRecWaitTime"] = _this->maxRecWaitTime;
-                        config.release(true);
-                    }
-                    _this->getflag_level[currSrvr] = gui::mainWindow.getflag_level_ctrl(currSrvr);
-                    // _this->flag_level = _this->getflag_level[currSrvr];
-                    // if (gui::mainWindow.getlevel_ctrl(currSrvr) != _this->genlevel) {
-                    //    _this->genlevel = gui::mainWindow.getlevel_ctrl(currSrvr);
-                    //    _this->getgen_level[currSrvr] = _this->genlevel;
-                    //}
 
                     // }
                     // if (_this->currSource != SOURCE_ARM) {
@@ -942,9 +1129,14 @@ private:
                             _this->stop();
                             _this->_recording = false;
                             _this->_detected = false;
+                            if (_this->updateWhenRun == true)
+                            {
+                                _this->updateWhenRun = false;
+                                gui::mainWindow.setUpdateMenuRcv7Ctrl(true);
+                                gui::mainWindow.setUpdateListRcv7Ctrl(currSrvr, true);
+                            }
                         }
                     }
-                    flog::info("!!! 10");
                 }
             }
         }
@@ -952,8 +1144,8 @@ private:
 
     void getScanLists()
     {
-        if (!isARM)
-            return;
+        // if (!isARM)
+        //    return;
         flog::info("getScanLists started");
 
         // ИСПРАВЛЕНО: Используем unique_ptr для автоматического управления памятью (RAII).
@@ -1038,7 +1230,7 @@ private:
                 sbm.frequency[bookmark_idx] = get_json_number(bm, "frequency", 0.0);
                 sbm.bandwidth[bookmark_idx] = get_json_number(bm, "bandwidth", 12500.0);
                 sbm.mode[bookmark_idx] = static_cast<int>(get_json_number(bm, "mode", 0));
-                sbm.Signal[bookmark_idx] = get_json_number(bm, "Signal", 0.0);
+                sbm.Signal[bookmark_idx] = get_json_number(bm, "Signal", 0);
                 sbm.level[bookmark_idx] = get_json_number(bm, "level", -50.0);
 
                 bookmark_idx++;
@@ -1071,19 +1263,27 @@ private:
             }
         }
 
-        flog::info("getScanLists finished. Total lists: {0}, total buffer size: {1}", list_count, sizeofbbuf);
+        // flog::info("getScanLists finished. Total lists: {0}, total buffer size: {1}", list_count, sizeofbbuf);
 
         // Передаем указатель на данные в GUI. GUI ДОЛЖЕН скопировать эти данные, а не хранить указатель.
         gui::mainWindow.setbbuf_ctrl(bbuf.get(), sizeofbbuf);
-        // ::operator delete(bbuf); <-- БОЛЬШЕ НЕ НУЖНО! Память освободится автоматически.
-        /*
+
+        // Привязываем выбранный банк к текущему серверу
         CurrSrvr = gui::mainWindow.getCurrServer();
         gui::mainWindow.setidOfList_ctrl(CurrSrvr, selectedListId);
         gui::mainWindow.setflag_level_ctrl(CurrSrvr, getflag_level[CurrSrvr]);
         gui::mainWindow.setLevelDbCtrl(CurrSrvr, getgen_level[CurrSrvr]);
-        gui::mainWindow.setUpdateListRcv7Ctrl(MAX_SERVERS, true);
-        gui::mainWindow.setUpdateMenuSnd7Ctrl(MAX_SERVERS, true);
-        */
+
+        // Отправляем обновлённый банк General на все РПМ,
+        // КРОМЕ тех, где сейчас запущено Спостереження (CTRL уже запущен)
+        for (int srv = 0; srv < MAX_SERVERS; ++srv)
+        {
+            if (gui::mainWindow.getbutton_ctrl(srv))
+                continue; // на этом РПМ идёт работа, не трогаем его банк
+
+            gui::mainWindow.setUpdateListRcv7Ctrl(srv, true);
+            gui::mainWindow.setUpdateMenuSnd7Ctrl(srv, true);
+        }
         flog::warn("CTRL msgCtrl ({0}) sizeofbbuf: {1}, gui::mainWindow.getUpdateMenuSnd7Ctrl {2}, flag_level {3}", CurrSrvr, sizeofbbuf, gui::mainWindow.getUpdateMenuSnd7Ctrl(CurrSrvr), getflag_level[CurrSrvr]);
     }
 
@@ -1505,7 +1705,7 @@ private:
             ImGui::SetNextItemWidth(250);
             ImGui::InputInt(("##supervisor_edit_level_4" + name).c_str(), &editedBookmark.level, -150, 0);
             */
-            editedBookmark.level = -70; // std::clamp<int>(editedBookmark.level, -150, -30);
+            editedBookmark.level = -50; // std::clamp<int>(editedBookmark.level, -150, -30);
 
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -1979,7 +2179,7 @@ private:
                 }
                 config.conf["lists"][editedListName]["showOnWaterfall"] = true;
                 config.conf["lists"][editedListName]["flaglevel"] = false;
-                config.conf["lists"][editedListName]["genlevel"] = -70;
+                config.conf["lists"][editedListName]["genlevel"] = -50;
                 config.release(true);
                 refreshLists();
                 loadByName(editedListName);
@@ -2107,7 +2307,7 @@ private:
                     wbm.bookmark.mode = bm.value("mode", 0);
                     wbm.bookmark.scard = bm.value("scard", "");
                     wbm.bookmark.Signal = bm.value("Signal", 0);
-                    wbm.bookmark.level = bm.value("level", -70);
+                    wbm.bookmark.level = bm.value("level", -50);
                     wbm.bookmark.dopinfo = bm.value("dopinfo", "");
 
                     /*
@@ -2248,7 +2448,7 @@ private:
                 fbm.bandwidth = bm.value("bandwidth", 12500.0);
                 fbm.mode = bm.value("mode", 0);
                 fbm.scard = bm.value("scard", "");
-                fbm.level = std::clamp(bm.value("level", -70), -150, -30);
+                fbm.level = std::clamp(bm.value("level", -50), -150, -30);
                 fbm.dopinfo = bm.value("dopinfo", bmName);
                 fbm.Signal = bm.value("Signal", 0);
 
@@ -2313,7 +2513,7 @@ private:
             catch (const std::exception &e)
             {
                 std::cerr << e.what() << '\n';
-                fbm.level = -70;
+                fbm.level = -50;
             }
             fbm.level = std::clamp<int>(fbm.level, -150, -30);
             try
@@ -2379,6 +2579,7 @@ private:
         flog::info("AddSelectedList");
         if (isARM)
             return true;
+        int Signal = 0;
         for (auto [bmName, bm] : config.conf["lists"][selectedListName]["bookmarks"].items())
         {
             try
@@ -2390,6 +2591,14 @@ private:
             {
                 flog::warn("loadByName listName {0} is emply", selectedListName);
                 break;
+            }
+            try
+            {
+                Signal = bm["Signal"];
+            }
+            catch (...)
+            {
+                flog::warn("loadByName Signal is emply");
             }
             std::string _name = bmName;
             if (_fake == false)
@@ -2423,6 +2632,7 @@ private:
                 // flog::info("!!! 1411");
                 core::moduleManager.postInit(_name);
                 core::modComManager.callInterface(_name, RECORDER_IFACE_CMD_SET_STREAM, (void *)editedBookmarkName.c_str(), NULL);
+                core::modComManager.callInterface(_name, RECORDER_IFACE_CMD_SET_SIGNAL, &Signal, NULL);
 
                 flog::info("!!! Recorder successfully added! modName={0}, editedBookmarkName={1} editedBookmark.frequency={2}", _name, editedBookmarkName, editedBookmark.frequency);
             }
@@ -2691,13 +2901,13 @@ private:
                 _update_ListID = true;
             }
         }
-
+        bool _ifStartElseBtn = gui::mainWindow.getIfOneButtonStart();
         bool showThisMenu = _this->isServer;
         if (_this->Admin)
             showThisMenu = false;
-        /// flog::info("run {0} || selVFO {1} || _work {2}, showThisMenu {3}", _run, selVFO, _work, showThisMenu);
+
         // run false || selVFO Канал приймання || _work 1, showThisMenu false
-        if (_run || selVFO != "Канал приймання" || _work > 0)
+        if (_run || selVFO != "Канал приймання" || _work > 0 || _ifStartElseBtn)
         {
             ImGui::BeginDisabled();
         }
@@ -2752,14 +2962,16 @@ private:
                             curr_freq = bm.frequency;
                             break;
                         }
-                        flog::info(" selectedListId {0}, _this->selectedListName {1}, curr_freq {2}", _this->selectedListId, _this->selectedListName, curr_freq);
-                        if (!gui::waterfall.selectedVFO.empty())
-                            tuner::centerTuning(gui::waterfall.selectedVFO, curr_freq);
-                        // int tuningMode = tuner::TUNER_MODE_NORMAL;
-                        tuner::tune(gui::mainWindow.gettuningMode(), gui::waterfall.selectedVFO, gui::freqSelect.frequency);
-                        gui::waterfall.centerFreqMoved = true;
-                        gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
-
+                        if (curr_freq > 10000)
+                        {
+                            flog::info(" selectedListId {0}, _this->selectedListName {1}, curr_freq {2}", _this->selectedListId, _this->selectedListName, curr_freq);
+                            if (!gui::waterfall.selectedVFO.empty())
+                                tuner::centerTuning(gui::waterfall.selectedVFO, curr_freq);
+                            // int tuningMode = tuner::TUNER_MODE_NORMAL;
+                            tuner::tune(gui::mainWindow.gettuningMode(), gui::waterfall.selectedVFO, gui::freqSelect.frequency);
+                            gui::waterfall.centerFreqMoved = true;
+                            gui::mainWindow.setUpdateMenuSnd0Main(gui::mainWindow.getCurrServer(), true);
+                        }
                         gui::mainWindow.setidOfList_ctrl(currSrvr, _this->selectedListId);
                         gui::mainWindow.setUpdateMenuSnd7Ctrl(currSrvr, true);
                         gui::mainWindow.setUpdateCTRLListForBotton(currSrvr, true);
@@ -3327,10 +3539,10 @@ private:
                 }
                 ImGui::LeftLabel("Час очікування, сек");
                 ImGui::SetNextItemWidth(menuWidth - ImGui::GetCursorPosX());
-                if (ImGui::InputInt("##linger_timeWait_ctrlner_4", &_this->maxRecWaitTime, 1, 180))
+                if (ImGui::InputInt("##linger_timeWait_ctrlner_4", &_this->maxRecWaitTime, 2, 180))
                 {
                     flog::info("_this->maxRecWaitTime {0}", _this->maxRecWaitTime);
-                    _this->maxRecWaitTime = std::clamp<int>(_this->maxRecWaitTime, 1, 180);
+                    _this->maxRecWaitTime = std::clamp<int>(_this->maxRecWaitTime, 2, 180);
                     config.acquire();
                     if (_this->isARM)
                     {
@@ -3447,7 +3659,7 @@ private:
                     ImGui::EndDisabled();
                 }
             }
-            if (_run || selVFO != "Канал приймання" || _work > 0)
+            if (_run || selVFO != "Канал приймання" || _work > 0 || _ifStartElseBtn)
             {
                 ImGui::EndDisabled();
             }
@@ -3458,11 +3670,10 @@ private:
         // if(gui::waterfall.selectedVFO!="Канал приймання") { style::beginDisabled(); }
         int _air_recording;
         bool _empty = ((_this->bookmarks_size == 0) ? true : false);
-        bool _ifStartElseBtn = gui::mainWindow.getIfOneButtonStart();
         if (_this->currSource == SOURCE_ARM)
         {
             uint8_t currSrv = gui::mainWindow.getCurrServer();
-             std::atomic<bool> running_arm = {false};
+            std::atomic<bool> running_arm = {false};
             running_arm.store(gui::mainWindow.getbutton_ctrl(currSrv));
             _air_recording = gui::mainWindow.isPlaying();
             bool rec_work = gui::mainWindow.getServerRecording(currSrv);
@@ -3485,6 +3696,7 @@ private:
                         ImGui::BeginDisabled();
                     if (ImGui::Button("СТАРТ##ctrl4_arm_start_2", ImVec2(menuWidth, 0)))
                     {
+                        _this->getScanLists();
                         gui::mainWindow.setbutton_ctrl(currSrv, true);
                         flog::info("СТАРТ currSrv {0}", currSrv);
                         gui::mainWindow.setflag_level_ctrl(currSrvr, _this->getflag_level[currSrv]);
@@ -3736,8 +3948,16 @@ private:
             return;
         flog::info("[SUPERVISOR] START");
         // std::lock_guard<std::mutex> lock(startMtx);
+        updateWhenRun = false;
         ModuleState expected = ModuleState::STOPPED;
-        if (currentState.compare_exchange_strong(expected, ModuleState::STARTING))
+        if (!currentState.compare_exchange_strong(expected, ModuleState::STARTING))
+        {
+            flog::warn("[SUPERVISOR] start(): called, но текущее состояние не STOPPED (state={0})",
+                       (int)currentState.load());
+            currentState.store(ModuleState::STOPPED);
+            return;
+        }
+        // if (currentState.compare_exchange_strong(expected, ModuleState::STARTING))
         {
             std::string folderPath = "%ROOT%/recordings";
             // std::string expandedPath = expandString(folderPath + genLogFileName("/observ_"));
@@ -3746,6 +3966,7 @@ private:
             {
                 flog::warn("bookmarks is emply!");
                 gui::mainWindow.setbutton_ctrl(gui::mainWindow.getCurrServer(), false);
+                currentState.store(ModuleState::STOPPED);
                 return;
             }
             gui::mainWindow.setStopMenuUI(true);
@@ -3795,9 +4016,11 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             */
+            initial_find_level = true;
             // Запускаем тяжелую работу в отдельном потоке, чтобы не блокировать GUI
+
             std::thread([this]()
-            {
+                        {
                 // ... Вся тяжелая логика из старой функции start() ...
                 DelSelectedList(false); /// DMH
                 /*
@@ -3863,9 +4086,7 @@ private:
                     core::configManager.conf["frequency"] = gui::waterfall.getCenterFrequency();
                     core::configManager.release(true);
                 }
-                initial_find_level = true;
                 core::modComManager.callInterface("Запис", MAIN_SET_STATUS_CHANGE, NULL, NULL);
-
                 {
                     double bw = 0.922;
                     gui::mainWindow.setViewBandwidthSlider(0.922);
@@ -3902,7 +4123,9 @@ private:
                 }
                 core::modComManager.callInterface("Запис", MAIN_SET_START, NULL, NULL);
 
-                itbook = bookmarks.begin();
+                flog::info("[SUPERVISOR] setStopMenuUI"); 
+                gui::mainWindow.setStopMenuUI(false);
+
                 _recording = false;
                 core::configManager.acquire();
                 try
@@ -3926,14 +4149,11 @@ private:
 
                 for (int i = 0; i < maxCHANNELS; i++)
                     ch_recording[i] = false;
-
                 
                 // И только теперь переводим модуль в рабочее состояние
                 currentState.store(ModuleState::RUNNING);
-                gui::mainWindow.setStopMenuUI(false);
-                flog::info("[SUPERVISOR] Module is now RUNNING.");                
-            }).detach(); // Отсоединяем, так как GUI не должен ждать завершения
-
+                flog::info("[SUPERVISOR] Module is now RUNNING."); })
+                .detach(); // Отсоединяем, так как GUI не должен ждать завершения
         }
     }
 
@@ -4029,6 +4249,7 @@ private:
           // is_stopping.store(false);
           // ВСЁ. Функция stop() завершается. Она не вызывает join() и DelSelectedList.
           // GUI не виснет.
+        updateWhenRun = false;
     }
 
     // Модифицированная функция для получения максимального уровня и оценки шума
@@ -4208,9 +4429,9 @@ private:
 
         // Если мы ждем неоправданно долго (например, 10 секунд), значит,
         // что-то пошло не так в рекордере. Принудительно останавливаем его.
-        if (time_spent_waiting_ms > 8000)
+        if (time_spent_waiting_ms > 5000)
         {
-            flog::error("Supervisor safety timeout for {0}! Waited more than 8 seconds. Forcing stop.", RECORD_CH_Name);
+            flog::error("Supervisor safety timeout for {0}! Waited more than 5 seconds. Forcing stop.", RECORD_CH_Name);
             core::modComManager.callInterface(RECORD_CH_Name.c_str(), RECORDER_IFACE_CMD_STOP, NULL, NULL);
 
             // Меняем состояние, чтобы выйти из ожидания и продолжить сканирование.
@@ -4218,126 +4439,303 @@ private:
         }
     }
 
+    /**
+     * @brief Основной рабочий цикл модуля Supervisor.
+     * Эта версия сочетает потокобезопасность (через копирование данных)
+     * с точным сохранением оригинальной блочной структуры (_Receiving, _detected).
+     */
     void worker()
     {
-        // 10Hz scan loop
+        flog::info("[SUPERVISOR] Worker thread started.");
+
+        // Инициализация переменных состояния цикла
         bool _Receiving = true;
-        int _mode;
-        int recMode = 1; // RECORDER_MODE_AUDIO;
+        bool _detected = false;
         tuning = false;
-        _detected = false;
+        auto init_level_time = std::chrono::high_resolution_clock::now();
 
-        auto init_level_time = std::chrono::high_resolution_clock::now(); // std::chrono::time_point<std::chrono::high_resolution_clock>(std::chrono::seconds(1));
-
-        if (itbook != bookmarks.end())
+        // --- Первоначальная настройка итератора перед входом в цикл ---
         {
-            name = itbook->first;
-            ch_num = 0;
-            auto bm = itbook->second;
-            current = bm.frequency;
-            curr_bw = bm.bandwidth;
-            ch_rec_Name = "Запис " + name;
-            ch_curr_selectedVFO = name;
-            // curr_level = bm.level;
-            if (getflag_level[CurrSrvr] == true)
-                curr_level = getgen_level[CurrSrvr];
-            else
-                curr_level = bm.level;
-            ch_curr_Signal = bm.Signal;
-        }
-        else
-            return;
-
-        bool _r = false;
-        for (size_t i = 0; i < maxCHANNELS; i++)
-        {
-            if (ch_recording[i] == true)
+            std::lock_guard<std::mutex> lock(scan3Mtx);
+            if (bookmarks.empty())
             {
-                _r = true;
-                // flog::info("ch_recording[{0}]={1}, MAX_ch_num={2}, _recording = {3}", i, ch_recording[i], maxCHANNELS, _recording);
+                flog::warn("[SUPERVISOR] Bookmarks are empty on start. Worker thread is stopping.");
+                currentState.store(ModuleState::STOPPED);
+                return;
             }
+            itbook = bookmarks.begin();
+            ch_num = 0;
         }
 
-        // int update_level = 0;
+        while (currentState.load() != ModuleState::RUNNING && !core::g_isExiting)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
 
-        std::map<std::string, ObservationBookmark>::iterator itbook;
-        bool iterator_is_valid = false;
+        if (core::g_isExiting)
+        {
+            flog::info("[SUPERVISOR] Worker thread finished (exit while waiting RUNNING).");
+            return;
+        }
         // ===================================
-        //            ОСНОВНОЙ ЦИКЛ РАБОТЫ
+        //         ОСНОВНОЙ ЦИКЛ РАБОТЫ
         // ===================================
-        while (currentState.load() == ModuleState::RUNNING) {
+        while (currentState.load() == ModuleState::RUNNING && !core::g_isExiting)
+        {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            // Локальные копии для безопасной работы вне мьютекса
+            ObservationBookmark bmCopy;
+            std::string nameCopy;
+            int local_ch_num = 0;
+            // int modeCopy = 0;
+            std::string recNameCopy;
+            std::string vfoNameCopy;
+
+            // ====================================================================
+            // I. КРИТИЧЕСКАЯ СЕКЦИЯ: Безопасное получение данных о ТЕКУЩЕМ канале
+            // ВАЖНО: Переход на следующий канал (itbook++) теперь происходит здесь же,
+            // чтобы избежать гонки потоков.
+            // ====================================================================
             {
-                std::lock_guard<std::mutex> lck(scan3Mtx);
-                auto now = std::chrono::high_resolution_clock::now();
+                std::lock_guard<std::mutex> lock(scan3Mtx);
 
-                bool needs_reset = bookmarksUpdated.load() || !iterator_is_valid;
-                if (needs_reset)
+                if (bookmarksUpdated.exchange(false))
                 {
-                    // Логируем сброс только если причина - обновление от другого потока
-                    if (bookmarksUpdated.load())
-                    {
-                        flog::info("[Worker] Bookmarks were updated by another thread. Resetting iterator.");
-                    }
+                    flog::info("[SUPERVISOR] Bookmarks list was updated. Resetting iterator.");
                     itbook = bookmarks.begin();
-                    bookmarksUpdated.store(false);
+                    ch_num = 0;
                 }
 
-                if (bookmarks.empty())
-                {
-                    iterator_is_valid = false; // Итератор больше не валиден, т.к. список пуст.
-                    continue;                  // Пропускаем итерацию, на следующей снова проверим.
-                }
                 if (itbook == bookmarks.end())
                 {
                     itbook = bookmarks.begin();
-                    MAX_ch_num = ch_num; // Фиксируем кол-во каналов
+                    MAX_ch_num = ch_num;
                     ch_num = 0;
-                    if (itbook == bookmarks.end())
-                    {
-                        iterator_is_valid = false;
-                        continue;
-                    }
                 }
-                iterator_is_valid = true; // Если мы дошли до сюда, итератор точно валиден.
 
-                // --- Блок обновления рабочих переменных ---// Теперь, когда мы на 100% уверены, что itbook валиден, работаем с ним.
-                name = itbook->first;
-                auto &bm = itbook->second;
-                current = bm.frequency;
-                name = itbook->first;
-                curr_bw = bm.bandwidth;
-                ch_rec_Name = "Запис " + name;
-                ch_curr_selectedVFO = name;
-                ch_curr_Signal = bm.Signal;
+                if (itbook == bookmarks.end())
+                {
+                    continue; // bookmarks теперь пуст, безопасно пропускаем итерацию.
+                }
+
+                // Копируем данные для обработки в этой итерации
+                nameCopy = itbook->first;
+                bmCopy = itbook->second;
+                local_ch_num = ch_num;
+                // modeCopy = bmCopy.mode;
+                recNameCopy = "Запис " + nameCopy;
+                vfoNameCopy = nameCopy;
+
+                // Обновляем члены класса для отображения в GUI
+                name = nameCopy;
+                current = bmCopy.frequency;
+                curr_bw = bmCopy.bandwidth;
+                ch_curr_Signal = bmCopy.Signal;
+                ch_rec_Name = recNameCopy;
+                ch_curr_selectedVFO = vfoNameCopy;
+
                 if (getflag_level[CurrSrvr] || status_auto_level4)
                     curr_level = getgen_level[CurrSrvr];
                 else
-                    curr_level = bm.level;
+                    curr_level = bmCopy.level;
 
-                // Get FFT data
-                int dataWidth = 0;
-                float *data = gui::waterfall.acquireLatestFFT(dataWidth);
-                if (!data)
+                // СРАЗУ передвигаем итератор для СЛЕДУЮЩЕЙ итерации.
+                // Это ключевое изменение для безопасности.
+                // В оригинальном коде это делалось в блоке if(_Receiving == false).
+                ++itbook;
+                ++ch_num;
+
+            } // --- Конец критической секции. Мьютекс scan3Mtx освобожден ---
+
+            // ====================================================================
+            // II. ОБРАБОТКА СИГНАЛА: Работаем только с локальными копиями
+            // ====================================================================
+
+            int dataWidth = 0;
+            float *data = gui::waterfall.acquireLatestFFT(dataWidth);
+            if (!data)
+            {
+                continue;
+            }
+
+            auto now = std::chrono::high_resolution_clock::now();
+            double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency();
+            double wfWidth = gui::waterfall.getViewBandwidth();
+            double wfStart = wfCenter - (wfWidth / 2.0);
+
+            // Блок `if (_Receiving)`: Проверка сигнала на текущей, уже настроенной частоте.
+            if (_Receiving)
+            {
+
+                int _mode = 0;
+                int recMode = 1; // RECORDER_MODE_AUDIO;
+
+                float maxLevel = getMaxLevel(data, bmCopy.frequency, bmCopy.bandwidth, dataWidth, wfStart, wfWidth);
+
+                if (maxLevel > curr_level)
                 {
-                    continue;
-                }
-                // Get gather waterfall data
-                double wfCenter = gui::waterfall.getViewOffset() + gui::waterfall.getCenterFrequency(); // current
-                double wfWidth = gui::waterfall.getViewBandwidth();                                     // curr_bw; //
-                double wfStart = wfCenter - (wfWidth / 2.0);
-                double wfEnd = wfCenter + (wfWidth / 2.0);
+                    // flog::info(" >> current={0}, _Receiving==true, maxLevel = {1} > curr_level {2}, vfoWidth {3} ", current, maxLevel, curr_level, vfoWidth);
+                    // flog::info(" >> wfCenter={0}, wfWidth = {1}, wfStart {2}, wfEnd {3}, getViewOffset {4}, ViewBandwidth {5}, CFrequency {6}!", wfCenter, wfWidth, wfStart, wfEnd, gui::waterfall.getViewOffset(), gui::waterfall.getViewBandwidth(), gui::waterfall.getCenterFrequency());
+                    ModuleState actual_state = currentState.load();
+                    if (ch_recording[local_ch_num] == false && actual_state == ModuleState::RUNNING)
+                    {
+                        flog::info("TRACE. START Receiving! curr_level = {0}, maxLevel = {1}, current = {2} !", curr_level, maxLevel, current);
+                        if (gui::waterfall.selectedVFO != "")
+                        {
+                            if (core::modComManager.getModuleName(gui::waterfall.selectedVFO) == "radio")
+                            {
 
+                                _mode = gui::mainWindow.getselectedDemodID();
+                            }
+                            else
+                            {
+                                try
+                                {
+                                    core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_GET_MODE, NULL, &_mode);
+                                }
+                                catch (const std::exception &e)
+                                {
+                                    flog::warn("[TRACE] callInterface fallback (radioMode). Error: {0}", e.what());
+                                }
+                            }
+                        }
+                        std::string templ = "$y$M$d-$u-$f-$b-$n-$e.wav";
+                        core::configManager.acquire();
+                        try
+                        {
+                            maxRecDuration = core::configManager.conf["maxRecDuration"];
+                        }
+                        catch (...)
+                        {
+                        }
+                        core::configManager.release();
+                        curr_nameWavFile[local_ch_num] = genWavFileName(templ, current, _mode);
+                        if (curr_nameWavFile[local_ch_num] != "")
+                            curlPOST_begin(curr_nameWavFile[local_ch_num]);
+                        flog::info(" << START Recording {0} ({1}), curr_level = {2}, maxLevel = {3}, maxRecWaitTime {4} !", recNameCopy, local_ch_num, curr_level, maxLevel, maxRecWaitTime);
+                        int recMode = 1; // RECORDER_MODE_AUDIO;
+                        core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_SET_MODE, &recMode, NULL);
+
+                        int typeSrch = status_AKF ? (ch_curr_Signal + 1) : 0;
+                        flog::info(" typeSrch {0}, typeSrch");
+                        if (typeSrch > 0)
+                        {
+                            channel_states[local_ch_num].store(State::WAITING_FOR_AKF);
+                            ADD_WAIT_MS[local_ch_num] = 0;
+                        }
+                        else
+                            channel_states[local_ch_num].store(State::RECEIVING);
+
+                        core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_START_AKF, &typeSrch, NULL);
+
+                        core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_START, (void *)curr_nameWavFile[local_ch_num].c_str(), NULL);
+
+                        ch_StartTime[local_ch_num] = now;
+                        ch_recording[local_ch_num] = true;
+
+                        _recording = true;
+                    }
+                    else
+                    {
+                        if (channel_states[local_ch_num].load() == State::WAITING_FOR_AKF)
+                        {
+                            handleWaitingForAKF(local_ch_num, recNameCopy, now);
+                        }
+                        // flog::info("TRACE. {0} ({1}), curr_level = {2}, maxLevel = {3}, ch_recording[local_ch_num] {4} !", recNameCopy, chlocal_ch_numnum, curr_level, maxLevel, ch_recording[local_ch_num]);
+                        if (channel_states[local_ch_num].load() == State::STOPPING || (channel_states[local_ch_num].load() == State::RECEIVING && (std::chrono::duration_cast<std::chrono::milliseconds>(now - ch_StartTime[local_ch_num])).count() > maxRecDuration * 60000))
+                        {
+                            // RESTART
+                            channel_states[local_ch_num].store(State::STOPPED);
+                            core::modComManager.callInterface(recNameCopy, RECORDER_IFACE_CMD_STOP, NULL, NULL);
+                            if (curr_nameWavFile[local_ch_num] != "") //  && radioMode == 0
+                                curlPOST_end(curr_nameWavFile[local_ch_num]);
+
+                            std::string templ = "$y$M$d-$u-$f-$b-$n-$e.wav";
+                            curr_nameWavFile[local_ch_num] = genWavFileName(templ, current, _mode);
+                            core::modComManager.callInterface(recNameCopy, RECORDER_IFACE_CMD_STOP, NULL, NULL);
+                            flog::info("    RESTART Receiving {0} ({1}) !", recNameCopy, local_ch_num);
+
+                            int typeSrch = status_AKF ? (ch_curr_Signal + 1) : 0;
+                            core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_START_AKF, &typeSrch, NULL);
+                            recMode = 1;
+                            core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_SET_MODE, &recMode, NULL);
+                            core::modComManager.callInterface(recNameCopy.c_str(), RECORDER_IFACE_CMD_START, (void *)curr_nameWavFile[local_ch_num].c_str(), NULL);
+                            if (curr_nameWavFile[local_ch_num] != "") //  && radioMode == 0
+                                curlPOST_begin(curr_nameWavFile[local_ch_num]);
+
+                            ch_StartTime[local_ch_num] = now;
+                            ch_recording[local_ch_num] = true;
+                            _recording = true;
+                        }
+                    }
+
+                    // flog::info("TRACE. START Receiving... curr_level = {0}, maxLevel = {1}, current = {2}, _lingerTime {3}, _recording={4}, _record={5} !", curr_level, maxLevel, current, _lingerTime, _recording, _record);
+                    ch_lastSignalTime[local_ch_num] = now;
+                    _Receiving = false;
+                    _detected = true;
+                }
+                else
+                {
+                    if (_detected == false)
+                    {
+                        // flog::info("_detected {0} local_ch_num {1} ch_recording[local_ch_num] {2}, maxRecWaitTime {3} !", _detected, local_ch_num, ch_recording[local_ch_num], maxRecWaitTime);
+                        int wait_time_ms = maxRecWaitTime * 1000; // Значение по умолчанию
+
+                        // Если включен АКФ, получаем реальное время ожидания от рекордера
+                        if (status_AKF)
+                        {
+                            int akf_timeout_from_recorder = 0;
+                            // recNameCopy - это имя инстанса рекордера, например "Запис C3"
+                            core::modComManager.callInterface(recNameCopy, RECORDER_IFACE_GET_AKF_TIMEOUT, NULL, &akf_timeout_from_recorder);
+
+                            // Если рекордер вернул валидный таймаут, используем его
+                            if (akf_timeout_from_recorder > 0)
+                            {
+                                // Добавляем небольшой запас (например, 500 мс) на случай сетевых задержек
+                                wait_time_ms = (akf_timeout_from_recorder * 1000) + 500;
+                            }
+                        }
+                        if (ch_recording[local_ch_num] == true)
+                        {
+                            if ((std::chrono::duration_cast<std::chrono::milliseconds>(now - ch_lastSignalTime[local_ch_num])).count() > wait_time_ms)
+                            {
+                                core::modComManager.callInterface(recNameCopy, RECORDER_IFACE_CMD_STOP, NULL, NULL);
+                                flog::info("    STOP Receiving {0} ({1}) !", recNameCopy, local_ch_num);
+
+                                ch_recording[local_ch_num] = false;
+                                if (curr_nameWavFile[local_ch_num] != "")
+                                {
+                                    flog::info(" >> STOP Receiving 2 {0}! {1} - selectedVFO, curr_level = {2}, maxLevel = {3}, _recording={4}, _detected={5} !", local_ch_num, vfoNameCopy, curr_level, maxLevel, ch_recording[local_ch_num], _detected);
+                                    curlPOST_end(curr_nameWavFile[local_ch_num]);
+                                    curr_nameWavFile[local_ch_num] = "";
+                                }
+                            }
+                        }
+                    }
+                    _Receiving = false;
+                }
+            }
+
+            // Блок `if (_Receiving == false)`: Переключение на следующий канал
+            // Этот блок выполняется после того, как `_Receiving` был установлен в `false` в блоке выше.
+            if (_Receiving == false)
+            {
+                // ПРИМЕЧАНИЕ: itbook++ и local_ch_num++ были ПЕРЕМЕЩЕНЫ в критическую секцию выше для безопасности.
+                // Повторять их здесь НЕ НУЖНО.
                 // Gather VFO data
+                // flog::warn("[AUTOLEVEL] _Receiving = {0}, status_auto_level4 {1}, initial_find_level {2}", _Receiving, status_auto_level4, initial_find_level);
                 //====================================================
                 if (status_auto_level4 && initial_find_level)
                 {
+                    curr_level = -20;
                     int samplesPerSegment = 1000; // Количество отсчетов на поддиапазон
                     int numSegments = static_cast<int>((sigmentRight - sigmentLeft) / scan_band);
-
+                    flog::warn("[AUTOLEVEL] ENTER: initial_find_level={0}, status_auto_level4={1}, curr_level(before)={2}", initial_find_level, status_auto_level4, curr_level);
                     // Сканирование диапазона и поиск минимального уровня сигнала
                     float signalThreshold = scanRange(numSegments, data, dataWidth, wfStart, wfWidth);
                     curr_level = static_cast<int>(signalThreshold);
+                    flog::warn("[AUTOLEVEL] EXIT: signalThreshold={0}, curr_level(after)={1}", signalThreshold, curr_level);
                     getgen_level[CurrSrvr] = curr_level;
                     gui::mainWindow.setLevelDbCtrl(CurrSrvr, curr_level);
                     gui::mainWindow.setUpdateMenuSnd7Ctrl(CurrSrvr, true);
@@ -4347,277 +4745,67 @@ private:
                     gui::mainWindow.setChangeGainFalse();
                     init_level_time = std::chrono::high_resolution_clock::now();
                 }
-                //====================================================
-                // Check if we are waiting for a tune
-                if (_Receiving)
+
+                // Обновляем общий флаг наличия записей
+                bool _r = false;
+                for (size_t i = 0; i < MAX_ch_num; i++)
                 {
-                    double vfoWidth = sigpath::vfoManager.getBandwidth(ch_curr_selectedVFO);
-                    float maxLevel = getMaxLevel(data, current, vfoWidth, dataWidth, wfStart, wfWidth);
-                    /*
-                    if (status_auto_level4 && ch_recording[ch_num] == false) {
-                        if (update_level == 10) {
-                            double current_left = current + vfoWidth + vfoWidth / 2;
-                            double current_rght = current - (vfoWidth + vfoWidth / 2);
-                            float maxLevel_left = getMaxLevel(data, current_left, vfoWidth, dataWidth, wfStart, wfWidth);
-                            float maxLevel_rght = getMaxLevel(data, current_rght, vfoWidth, dataWidth, wfStart, wfWidth);
-                            float Averaging = (maxLevel_left + maxLevel_rght) / 2;
-                            int iLevel = round(Averaging + 10.0);
-
-                            flog::info(" >> current = {0}, maxLevel {1},  maxLevel_left {2}, maxLevel_rght {3}, curr_level {4}, new_level {5}  ", current, maxLevel, maxLevel_left, maxLevel_rght, curr_level, iLevel);
-
-                            int diff_level = iLevel - curr_level;
-                            if (diff_level < -7 || diff_level > 7) {
-                                flog::info(" Update LEVELS! Old Level {0}. New Level = {1}. iLevel > level+5 ({2}) && iLevel < level-5 ({3})!", curr_level, iLevel, curr_level + 5, curr_level - 5);
-                                genlevel = iLevel;
-                                curr_level = genlevel;
-                                gui::mainWindow.setLevelDbCtrl(CurrSrvr, curr_level);
-                                gui::mainWindow.setUpdateMenuSnd7Ctrl(CurrSrvr, true);
-                            }
-                            update_level = 0;
-                        }
-                        else
-                            update_level++;
-                    }
-                    */
-                    if (maxLevel > curr_level)
+                    if (ch_recording[i] == true)
                     {
-                        // flog::info(" >> current={0}, _Receiving==true, maxLevel = {1} > curr_level {2}, vfoWidth {3} ", current, maxLevel, curr_level, vfoWidth);
-                        // flog::info(" >> wfCenter={0}, wfWidth = {1}, wfStart {2}, wfEnd {3}, getViewOffset {4}, ViewBandwidth {5}, CFrequency {6}!", wfCenter, wfWidth, wfStart, wfEnd, gui::waterfall.getViewOffset(), gui::waterfall.getViewBandwidth(), gui::waterfall.getCenterFrequency());
-                         ModuleState actual_state = currentState.load();
-                        if (ch_recording[ch_num] == false && actual_state == ModuleState::RUNNING)
-                        {
-                            flog::info("TRACE. START Receiving! curr_level = {0}, maxLevel = {1}, current = {2} !", curr_level, maxLevel, current);
-                            if (gui::waterfall.selectedVFO != "")
-                            {
-                                if (core::modComManager.getModuleName(gui::waterfall.selectedVFO) == "radio")
-                                {
-
-                                    _mode = gui::mainWindow.getselectedDemodID();
-                                }
-                                else
-                                {
-                                    try
-                                    {
-                                        core::modComManager.callInterface(gui::waterfall.selectedVFO, RADIO_IFACE_CMD_GET_MODE, NULL, &_mode);
-                                    }
-                                    catch (const std::exception &e)
-                                    {
-                                        flog::warn("[TRACE] callInterface fallback (radioMode). Error: {0}", e.what());
-                                    }
-                                }
-                            }
-                            std::string templ = "$y$M$d-$u-$f-$b-$n-$e.wav";
-                            core::configManager.acquire();
-                            try
-                            {
-                                maxRecDuration = core::configManager.conf["maxRecDuration"];
-                            }
-                            catch (...)
-                            {
-                            }
-                            core::configManager.release();
-                            curr_nameWavFile[ch_num] = genWavFileName(templ, current, _mode);
-                            if (curr_nameWavFile[ch_num] != "")
-                                curlPOST_begin(curr_nameWavFile[ch_num]);
-                            flog::info(" << START Recording {0} ({1}), curr_level = {2}, maxLevel = {3}, maxRecWaitTime {4} !", ch_rec_Name, ch_num, curr_level, maxLevel, maxRecWaitTime);
-                            int recMode = 1; // RECORDER_MODE_AUDIO;
-                            core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_SET_MODE, &recMode, NULL);
-
-                            int typeSrch = status_AKF ? (ch_curr_Signal + 1) : 0;
-                            flog::info(" typeSrch {0}, typeSrch");
-                            if (typeSrch > 0)
-                            {
-                                channel_states[ch_num].store(State::WAITING_FOR_AKF);
-                                ADD_WAIT_MS[ch_num] = 0;
-                            }
-                            else
-                                channel_states[ch_num].store(State::RECEIVING);
-
-                            core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_START_AKF, &typeSrch, NULL);
-
-                            core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_START, (void *)curr_nameWavFile[ch_num].c_str(), NULL);
-
-                            ch_StartTime[ch_num] = now;
-                            ch_recording[ch_num] = true;
-
-                            _recording = true;
-                        }
-                        else
-                        {
-                            if (channel_states[ch_num].load() == State::WAITING_FOR_AKF)
-                            {
-                                handleWaitingForAKF(ch_num, ch_rec_Name, now);
-                            }
-                            // flog::info("TRACE. {0} ({1}), curr_level = {2}, maxLevel = {3}, ch_recording[ch_num] {4} !", ch_rec_Name, ch_num, curr_level, maxLevel, ch_recording[ch_num]);
-                            if (channel_states[ch_num].load() == State::STOPPING || (channel_states[ch_num].load() == State::RECEIVING && (std::chrono::duration_cast<std::chrono::milliseconds>(now - ch_StartTime[ch_num])).count() > maxRecDuration * 60000))
-                            {
-                                // RESTART
-                                channel_states[ch_num].store(State::STOPPED);
-                                core::modComManager.callInterface(ch_rec_Name, RECORDER_IFACE_CMD_STOP, NULL, NULL);
-                                if (curr_nameWavFile[ch_num] != "") //  && radioMode == 0
-                                    curlPOST_end(curr_nameWavFile[ch_num]);
-
-                                std::string templ = "$y$M$d-$u-$f-$b-$n-$e.wav";
-                                curr_nameWavFile[ch_num] = genWavFileName(templ, current, _mode);
-                                core::modComManager.callInterface(ch_rec_Name, RECORDER_IFACE_CMD_STOP, NULL, NULL);
-                                flog::info("    RESTART Receiving {0} ({1}) !", ch_rec_Name, ch_num);
-
-                                int typeSrch = status_AKF ? (ch_curr_Signal + 1) : 0;
-                                core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_START_AKF, &typeSrch, NULL);
-                                recMode = 1;
-                                core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_SET_MODE, &recMode, NULL);
-                                core::modComManager.callInterface(ch_rec_Name.c_str(), RECORDER_IFACE_CMD_START, (void *)curr_nameWavFile[ch_num].c_str(), NULL);
-                                if (curr_nameWavFile[ch_num] != "") //  && radioMode == 0
-                                    curlPOST_begin(curr_nameWavFile[ch_num]);
-
-                                ch_StartTime[ch_num] = now;
-                                ch_recording[ch_num] = true;
-                                _recording = true;
-                            }
-                        }
-
-                        // flog::info("TRACE. START Receiving... curr_level = {0}, maxLevel = {1}, current = {2}, _lingerTime {3}, _recording={4}, _record={5} !", curr_level, maxLevel, current, _lingerTime, _recording, _record);
-                        ch_lastSignalTime[ch_num] = now;
-                        _Receiving = false;
-                        _detected = true;
-                    }
-                    else
-                    {
-                        if (_detected == false)
-                        {
-                            // flog::info("_detected {0} ch_num {1} ch_recording[ch_num] {2}, maxRecWaitTime {3} !", _detected, ch_num, ch_recording[ch_num], maxRecWaitTime);
-                            int wait_time_ms = maxRecWaitTime * 1000; // Значение по умолчанию
-
-                            // Если включен АКФ, получаем реальное время ожидания от рекордера
-                            if (status_AKF)
-                            {
-                                int akf_timeout_from_recorder = 0;
-                                // ch_rec_Name - это имя инстанса рекордера, например "Запис C3"
-                                core::modComManager.callInterface(ch_rec_Name, RECORDER_IFACE_GET_AKF_TIMEOUT, NULL, &akf_timeout_from_recorder);
-
-                                // Если рекордер вернул валидный таймаут, используем его
-                                if (akf_timeout_from_recorder > 0)
-                                {
-                                    // Добавляем небольшой запас (например, 500 мс) на случай сетевых задержек
-                                    wait_time_ms = (akf_timeout_from_recorder * 1000) + 500;
-                                }
-                            }
-                            if (ch_recording[ch_num] == true)
-                            {
-                                if ((std::chrono::duration_cast<std::chrono::milliseconds>(now - ch_lastSignalTime[ch_num])).count() > wait_time_ms)
-                                {
-                                    core::modComManager.callInterface(ch_rec_Name, RECORDER_IFACE_CMD_STOP, NULL, NULL);
-                                    flog::info("    STOP Receiving {0} ({1}) !", ch_rec_Name, ch_num);
-
-                                    ch_recording[ch_num] = false;
-                                    if (curr_nameWavFile[ch_num] != "")
-                                    {
-                                        flog::info(" >> STOP Receiving 2 {0}! {1} - selectedVFO, curr_level = {2}, maxLevel = {3}, _recording={4}, _detected={5} !", ch_num, ch_curr_selectedVFO, curr_level, maxLevel, ch_recording[ch_num], _detected);
-                                        curlPOST_end(curr_nameWavFile[ch_num]);
-                                        curr_nameWavFile[ch_num] = "";
-                                    }
-                                }
-                            }
-                        }
-                        _Receiving = false;
+                        _r = true;
+                        break;
                     }
                 }
+                _recording = _r;
 
-                if (_Receiving == false)
+                // Физически переключаем VFO на следующий канал (имя которого уже было прочитано)
+                if (!gui::waterfall.setCurrVFO(vfoNameCopy))
                 {
-                    // flog::info(" ! ch_curr_selectedVFO {0}", ch_curr_selectedVFO);
-                    // if (correct_level==0) {
-                    // itbook = next(itbook);
-                    itbook++; // Безопасно переходим к следующему элементу
-                    ch_num++;
-                    /*
-                    if (itbook == bookmarks.end())
-                    {
-                        itbook = bookmarks.begin();
-                        MAX_ch_num = ch_num;
-                        ch_num = 0;
-                    }
-                    */
-                    // }
-                    // next_bank++;
-                    int _r = false;
-                    for (size_t i = 0; i < MAX_ch_num; i++)
-                    {
-                        if (ch_recording[i] == true)
-                        {
-                            _r = true;
-                            // flog::info("ch_recording[{0}]={1}, MAX_ch_num={2}, _recording = {3}", i, ch_recording[i], MAX_ch_num, _recording);
-                        }
-                    }
-                    _recording = _r;
-                    if (!gui::waterfall.setCurrVFO(ch_curr_selectedVFO))
-                    {
-                        _Receiving = false;
-                        if (ch_recording[ch_num] == true)
-                            core::modComManager.callInterface(ch_rec_Name, RECORDER_IFACE_CMD_STOP, NULL, NULL);
-                        ch_recording[ch_num] = false;
-                        //    _skip = true;
-                    }
-                    else
-                    {
-                        _Receiving = true;
-                    }
-
-                    _detected = false;
+                    _Receiving = false; // Не удалось переключиться, попробуем на след. итерации
+                    if (ch_recording[local_ch_num] == true)
+                        core::modComManager.callInterface(recNameCopy, RECORDER_IFACE_CMD_STOP, NULL, NULL);
+                    ch_recording[local_ch_num] = false;
+                }
+                else
+                {
+                    _Receiving = true; // Успешно переключились, на СЛЕДУЮЩЕЙ итерации будем проверять сигнал
                 }
 
-                //====================================================
-                if (status_auto_level4)
-                {
-                    /*
-                    bool new_gain = gui::mainWindow.getChangeGain();
-                    if (new_gain) {
-                        flog::info("new_gain {0}", new_gain);
-                        gui::mainWindow.setChangeGainFalse();
-                        trigger_time = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-                        timer_started = true;
-                    }
-                    if (timer_started && std::chrono::steady_clock::now() >= trigger_time) {
-                        initial_find_level = true;
-                        timer_started = false;
-                    }
-                    if ((std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() > INTERVAL_FOR_FIND_Threshold * 60000) {
-                        flog::info("time = {0}, (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() {1} ", (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count(), INTERVAL_FOR_FIND_Threshold * 60000);
-                        initial_find_level = true;
-                    }
-                    */
-
-                    if (cnt_skip == COUNT_FOR_REFIND_SKIP)
-                    {
-                        initial_find_level = true;
-                        flog::info("REFIND_LEVEL cnt_skip ={0}", cnt_skip);
-                    }
-
-                    bool new_gain = gui::mainWindow.getChangeGain();
-                    if (new_gain)
-                    {
-                        flog::info("new_gain {0}", new_gain);
-                        gui::mainWindow.setChangeGainFalse();
-                        trigger_time = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-                        timer_started = true;
-                    }
-                    if (timer_started && std::chrono::steady_clock::now() >= trigger_time)
-                    {
-                        initial_find_level = true;
-                        timer_started = false;
-                    }
-
-                    if ((std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() > INTERVAL_FOR_FIND_Threshold * 60000)
-                    {
-                        flog::info("time = {0}, (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() {1} ", (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count(), INTERVAL_FOR_FIND_Threshold * 60000);
-                        initial_find_level = true;
-                    }
-                }
-                // Release FFT Data
-                gui::waterfall.releaseLatestFFT();
+                _detected = false; // Сбрасываем флаг для следующего канала
             }
+            //====================================================
+            if (status_auto_level4)
+            {
+                if (cnt_skip == COUNT_FOR_REFIND_SKIP)
+                {
+                    initial_find_level = true;
+                    flog::info("REFIND_LEVEL cnt_skip ={0}", cnt_skip);
+                }
+
+                bool new_gain = gui::mainWindow.getChangeGain();
+                if (new_gain)
+                {
+                    flog::info("new_gain {0}", new_gain);
+                    gui::mainWindow.setChangeGainFalse();
+                    trigger_time = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+                    timer_started = true;
+                }
+                if (timer_started && std::chrono::steady_clock::now() >= trigger_time)
+                {
+                    initial_find_level = true;
+                    timer_started = false;
+                }
+
+                if ((std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() > INTERVAL_FOR_FIND_Threshold * 60000)
+                {
+                    flog::info("time = {0}, (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count() {1} ", (std::chrono::duration_cast<std::chrono::milliseconds>(now - init_level_time)).count(), INTERVAL_FOR_FIND_Threshold * 60000);
+                    initial_find_level = true;
+                }
+            }
+            gui::waterfall.releaseLatestFFT();
         }
-        // flog::info("record = {0}, bm[bandwidth] = {1}, bm[mode] = {2}, _name = {3}", bm.frequency, bm.bandwidth, bm.mode, name);
+
+        flog::info("[SUPERVISOR] Worker thread finished.");
     }
 
     struct Drawn
@@ -4901,7 +5089,7 @@ private:
         newList["showOnWaterfall"] = true;
 
         newList["flaglevel"] = false;
-        newList["genlevel"] = -70;
+        newList["genlevel"] = -50;
 
         newList["bookmarks"] = json::object();
         config.conf["lists"][NameList] = newList;
@@ -5334,7 +5522,6 @@ private:
 
     int bookmarkDisplayMode = 0;
 
-   
     std::thread workerThread;
     std::mutex scan3Mtx;
 
@@ -5356,13 +5543,13 @@ private:
     bool _record = true;
     bool _recording = false;
     bool _detected = false;
-    int curr_level = -70;
-    int ch_curr_Signal = -70;
+    int curr_level = -50;
+    int ch_curr_Signal = -50;
 
     // bool flag_level = false;
     bool getflag_level[MAX_SERVERS] = {false, false, false, false, false, false, false, false};
     // int genlevel = -72;
-    int getgen_level[MAX_SERVERS] = {-70, -70, -70, -70, -70, -70, -70, -70};
+    int getgen_level[MAX_SERVERS] = {-50, -50, -50, -50, -50, -50, -50, -50};
     std::string ch_rec_Name = "Запис";
     bool ch_recording[MAX_CHANNELS];
     std::string ch_curr_selectedVFO = "Канал приймання";
@@ -5452,6 +5639,8 @@ private:
         STOPPING  // Промежуточное состояние для предотвращения гонок
     };
     std::atomic<ModuleState> currentState{ModuleState::STOPPED};
+
+    bool updateWhenRun = false;
 };
 
 MOD_EXPORT void _INIT_()
@@ -5482,7 +5671,7 @@ MOD_EXPORT void _INIT_()
     def["bookmarkDisplayMode"] = BOOKMARK_DISP_MODE_TOP;
     def["lists"]["General"]["showOnWaterfall"] = true;
     def["lists"]["General"]["flaglevel"] = false;
-    def["lists"]["General"]["genlevel"] = -70;
+    def["lists"]["General"]["genlevel"] = -50;
     def["lists"]["General"]["Signal"] = 0;
     def["lists"]["General"]["bookmarks"] = json::object();
 
@@ -5519,7 +5708,7 @@ MOD_EXPORT void _INIT_()
         }
         else
         {
-            newList["genlevel"] = -70;
+            newList["genlevel"] = -50;
         }
 
         newList["bookmarks"] = list;
@@ -5528,14 +5717,14 @@ MOD_EXPORT void _INIT_()
     config.release(true);
     flog::info("MOD_EXPORT");
     /*
-    gui::mainWindow.setlevel_ctrl(0, -70);
-    gui::mainWindow.setlevel_ctrl(1, -70);
-    gui::mainWindow.setlevel_ctrl(2, -70);
-    gui::mainWindow.setlevel_ctrl(3, -70);
-    gui::mainWindow.setlevel_ctrl(4, -70);
-    gui::mainWindow.setlevel_ctrl(5, -70);
-    gui::mainWindow.setlevel_ctrl(6, -70);
-    gui::mainWindow.setlevel_ctrl(7, -70);
+    gui::mainWindow.setlevel_ctrl(0, -50);
+    gui::mainWindow.setlevel_ctrl(1, -50);
+    gui::mainWindow.setlevel_ctrl(2, -50);
+    gui::mainWindow.setlevel_ctrl(3, -50);
+    gui::mainWindow.setlevel_ctrl(4, -50);
+    gui::mainWindow.setlevel_ctrl(5, -50);
+    gui::mainWindow.setlevel_ctrl(6, -50);
+    gui::mainWindow.setlevel_ctrl(7, -50);
     */
 }
 

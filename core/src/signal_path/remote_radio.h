@@ -14,6 +14,7 @@
 // #include <utils/networking.h>
 #include <gui/smgui.h>
 #include <dsp/sink/handler_sink.h> 
+#include <json.hpp>
 
 namespace remote
 {
@@ -130,7 +131,12 @@ namespace remote
             stop_requested = true;
             cond.notify_all(); // Разбудить все ожидающие потоки
         }
-
+        // Сбрасывает состояние остановки, позволяя использовать очередь заново
+        void reset()
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            stop_requested = false;
+        }
     private:
         std::deque<T> queue;
         std::mutex mtx;
@@ -161,21 +167,30 @@ namespace remote
         std::string _streamName;
         std::thread workerThread;
         std::thread senderUDP;
+        std::thread senderDbUDP;
+
+        std::atomic<bool> stopworkerThread{false};
+        std::atomic<bool> stopUdpSender{false};
+        std::atomic<bool> stopUdpDBSender{false};
 
         // bool _stop = false;
         bool socket_work = false;
 
-        // void commandHandler(Command cmd, uint8_t* data, int len);
-        void udpSenderThread(const std::string &ip, int port, const std::string &prefix);
-
+        void udpReceiverWorker(const std::string &ip, int port, const std::string &prefix);
+        void udpDbWorker(const std::string &ip, int port);
         std::atomic<bool> stopAudioSender{false};
         bool pleaseStop = false;
-
     private:
         static void ServerHandler(dsp::complex_t* data, int count, void* ctx);
         // static void ServerHandler(uint8_t *data, int count, void *ctx);
         // НОВОЕ: Поток-потребитель для отправки аудио по сети
         void audioSenderWorker();
+
+        // void handleDbsendCommand(uint32_t task_id, int work_status);
+        // void processSearchMode(uint32_t task_id);
+        // void processScanMode(uint32_t task_id);
+        // void processObservationMode(uint32_t task_id);
+        void saveConfigToFile(const json &config, const std::string &filename = "sdr_config.json");
 
         bool _init = false;
 
@@ -202,8 +217,32 @@ namespace remote
         std::thread audioSenderThread;
         std::atomic<bool> _running{false};
         std::atomic<bool> closeProgramm{false};
+        uint16_t info_udp =0;
+        
+        bool isAsterPlus =false;
+        std::atomic<uint32_t> currentTaskId{0};
+        std::atomic<int> currentWorkStatus{0}; 
+        
+        std::string kConnStr;       // Строка подключения к БД
+        std::atomic<bool> dbInFlight{false};
+        std::atomic<uint32_t> lastDbTaskId{0};
+        std::string searchJsonPath, controlJsonPath, scanJsonPath;
 
-        // std::thread clientHandlerThread;
+        const std::chrono::seconds FORCE_PERIOD = std::chrono::seconds(10);
+        char prevTelemetry[512];
+        size_t prevCmpLen = 0;
+        char prevBuf[512];
+        size_t prevBufLen = 0;
+        std::chrono::steady_clock::time_point lastSend{
+        std::chrono::steady_clock::now() - std::chrono::seconds(10)};        
+        bool prevInit = false;
+        double prevFrequency = 0.0;
+        int prevBandwidth = 0;
+        int prevDemodId = -1;
+        bool prevIsPlaying = false;
+        int prevWorkStatus = -1;
+        unsigned prevTaskId = 0;
+
     };
 
 };

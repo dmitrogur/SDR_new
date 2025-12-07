@@ -519,6 +519,7 @@ int sdrpp_main(int argc, char *argv[])
     defConfig["InstanceNum"] = 1;
     defConfig["IsARM"] = false;
     defConfig["IsNotPlaying"] = false;
+    defConfig["AsterPlus"] = false;
     defConfig["IsServer"] = true;
     defConfig["MAX_CHANNELS"] = 6;
     defConfig["PathJson"] = "/opt/banks";
@@ -657,7 +658,7 @@ int sdrpp_main(int argc, char *argv[])
 
     defConfig["moduleInstances"]["Канал приймання"] = "radio";
 
-    defConfig["moduleInstances"]["Сервер РПП"] = "remote_radio";
+    // defConfig["moduleInstances"]["Сервер РПП"] = "remote_radio";
     // defConfig["moduleInstances"]["Сервер РПП"]["enabled"] = true;
 
     // defConfig["moduleInstances"]["Frequency Manager"] = "frequency_manager";

@@ -28,7 +28,8 @@ enum
     ARM_STATUS_FULL_CONTROL
 };
 
-enum {
+enum
+{
     RECORDER_IFACE_CMD_GET_MODE,
     RECORDER_IFACE_CMD_SET_MODE,
     RECORDER_IFACE_CMD_START,
@@ -44,7 +45,9 @@ enum {
     RECORDER_IFACE_CMD_START_AKF,
     RECORDER_IFACE_GET_RECORD,
     RECORDER_IFACE_GET_SIGNAL,
-    RECORDER_IFACE_GET_AKF_TIMEOUT
+    RECORDER_IFACE_GET_AKF_TIMEOUT,
+    RECORDER_IFACE_CMD_STOP_FINISH,
+    RECORDER_IFACE_CMD_SET_SIGNAL
 };
 
 enum
@@ -324,10 +327,12 @@ public:
     void setUpdateMenuSnd2Radio(bool val);
     void setUpdateMODRadio(bool val);
 
-    int getSelectedMode(int srv) {
-        return SelectedMode[srv];    
+    int getSelectedMode(int srv)
+    {
+        return SelectedMode[srv];
     };
-    void setSelectedMode(int srv, int val) {
+    void setSelectedMode(int srv, int val)
+    {
         SelectedMode[srv] = val;
     };
 
@@ -346,7 +351,7 @@ public:
 
     // SEARCH
 #define MAX_BM_SIZE 64
-#define MAX_COUNT_OF_DATA 100
+#define MAX_COUNT_OF_DATA 64
 #define MAX_COUNT_OF_CTRL_LIST 8
 #define MAX_LIST_PACKET_SRCH_SIZE (MAX_BM_SIZE + 1) * 120 // MAX_BM_SIZE * sizeof(pSearch){96/120}
 #define MAX_LIST_PACKET_SCAN_SIZE 157600                  // MAX_LIST_PACKET_SIZE MAX_BM_SIZE * sizeof(pScan)  156160
@@ -562,11 +567,13 @@ public:
     bool fullConnection[MAX_SERVERS] = {false, true, true, true, true, true, true, true};
     void setServerSampleRate(uint8_t srv, double val);
     double getServerSampleRate(uint8_t srv);
-    void setStopMenuUI(bool val) {
-        suppressSinkUI =val;
+    void setStopMenuUI(bool val)
+    {
+        suppressSinkUI.store(val);
     }
-    bool getStopMenuUI() {
-        return suppressSinkUI;
+    bool getStopMenuUI()
+    {
+        return suppressSinkUI.load(); 
     }
 
 private:
@@ -632,7 +639,7 @@ private:
     int serverStatus[MAX_SERVERS] = {0, 0, 0, 0, 0, 0, 0, 0};
     int ServerStatusControl[MAX_SERVERS] = {0, 0, 0, 0, 0, 0, 0, 0};
     bool server_playing[MAX_SERVERS] = {false, false, false, false, false, false, false, false};
-    bool isNotPlaying[MAX_SERVERS]   = {false, false, false, false, false, false, false, false};
+    bool isNotPlaying[MAX_SERVERS] = {false, false, false, false, false, false, false, false};
 
     // size_t sizeofSearchModeList = 0;
     // size_t sizeofScanModeList  = 0;
@@ -796,5 +803,5 @@ private:
     bool UpdateMenuSndCtrl[MAX_SERVERS] = {false, false, false, false, false, false, false, false};
     bool UpdateMenuRcvCtrl = false;
     double serverSampleRate[MAX_SERVERS] = {MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE, MAIN_SAMPLE_RATE};
-    bool suppressSinkUI = false;
+    std::atomic<bool> suppressSinkUI = false;
 };
